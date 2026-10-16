@@ -321,6 +321,7 @@ public:
 
         juce::Slider* ks[5] = { &blend, &wave, &filter, &fine, &coarse };
         const char* ids[5] = { "blend", "wave", "filter", "fine", "coarse" };
+        const char* labels[5] = { "BLEND", "WAVE", "FILTER/RATE", "FINE/DEPTH", "COARSE" };
         for (int i = 0; i < 5; ++i)
         {
             auto& s = *ks[i];
@@ -332,6 +333,12 @@ public:
             addAndMakeVisible (s);
             s.setBounds ((int) (kKnobX[i] - kKnobR), (int) (kKnobY - kKnobR), (int) (2 * kKnobR), (int) (2 * kKnobR));
             attachments.push_back (std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment> (proc.apvts, ids[i], s));
+            s.onValueChange = [this, &s, name = juce::String (labels[i])]
+            {
+                const int pct = (int) std::lround (s.valueToProportionOfLength (s.getValue()) * 100.0);
+                knobText = name + "   " + juce::String (pct) + " %";
+                knobTextMs = juce::Time::getMillisecondCounter();
+            };
             s.setDoubleClickReturnValue (true, proc.apvts.getParameter (ids[i])->convertFrom0to1 (proc.apvts.getParameter (ids[i])->getDefaultValue()));
         }
 
@@ -420,6 +427,7 @@ public:
         if (m1.isNotEmpty()) status << "MIDI PRESET/TUNE: " << m1 << "   ";
         if (m2.isNotEmpty()) status << "MIDI BYPASS: " << m2;
         if (proc.getLearnTarget() != MidiTarget::None) status = "MIDI LEARN: move a control / press a note...";
+        else if (knobText.isNotEmpty() && (now - knobTextMs) < 1500) status = knobText;   // live knob percentage
         if (status.isNotEmpty())
         {
             g.setColour (juce::Colour (0xffc8c8c8));
@@ -437,6 +445,8 @@ private:
     PedalSlider blend, wave, filter, fine, coarse;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> attachments;
     juce::Image psWhite, psYellow;
+    juce::String knobText;                // e.g. "BLEND  63 %" shown in the status line while a knob moves
+    juce::uint32 knobTextMs = 0;
     BigKnob bigKnob;
     ToggleZone rmZone, ubZone, lbZone, psZone, phZone;
     LadderZone ladder;

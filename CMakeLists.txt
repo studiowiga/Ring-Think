@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(WigaRingThink VERSION 2.0.0)
+project(WigaRingThink VERSION 2.1.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -12,7 +12,7 @@ FetchContent_MakeAvailable(JUCE)
 juce_add_binary_data(RingAssets SOURCES background.png pitchshift_white.png pitchshift_yellow.png)
 
 juce_add_plugin(RingThingSSB
-  COMPANY_NAME "Wiga"
+  COMPANY_NAME "Studio Wiga"
   PLUGIN_MANUFACTURER_CODE Wiga
   PLUGIN_CODE WgRt
   FORMATS VST3
@@ -20,7 +20,7 @@ juce_add_plugin(RingThingSSB
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT TRUE
   NEEDS_MIDI_OUTPUT FALSE
-  PRODUCT_NAME "Wiga Ring Think"
+  PRODUCT_NAME "Ring Think"
   COPY_PLUGIN_AFTER_BUILD FALSE)
 
 target_sources(RingThingSSB PRIVATE

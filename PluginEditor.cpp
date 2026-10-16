@@ -494,6 +494,8 @@ static void addSizeSubmenu (juce::PopupMenu& m, juce::Component& c)
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     const char* names[3] = { "50 %", "75 %", "100 %" };
     juce::PopupMenu sub;
+    const bool isDef = ed != nullptr && std::abs ((float) ed->getWidth() / (float) kW - kDefaultScale) < 0.02f;
+    sub.addItem (104, "60 % (default)", true, isDef);
     for (int i = 0; i < 3; ++i) sub.addItem (101 + i, names[i], true, i == cur);
     m.addSeparator();
     m.addSubMenu ("Plugin size", sub);
@@ -501,8 +503,8 @@ static void addSizeSubmenu (juce::PopupMenu& m, juce::Component& c)
 
 static void handleSizeChoice (int r, juce::Component* c)
 {
-    if (c == nullptr || r < 101 || r > 103) return;
-    if (auto* ed = c->findParentComponentOfClass<RingEditor>()) ed->setScaleIndex (r - 101);
+    if (c == nullptr || r < 101 || r > 104) return;
+    if (auto* ed = c->findParentComponentOfClass<RingEditor>()) ed->setScaleIndex (r == 104 ? -1 : r - 101);
 }
 
 static void showSizeMenuFor (juce::Component& c)
@@ -512,6 +514,8 @@ static void showSizeMenuFor (juce::Component& c)
     const char* names[3] = { "50 %", "75 %", "100 %" };
     juce::PopupMenu m;
     m.addSectionHeader ("Plugin size");
+    const bool isDef = ed != nullptr && std::abs ((float) ed->getWidth() / (float) kW - kDefaultScale) < 0.02f;
+    m.addItem (104, "60 % (default)", true, isDef);
     for (int i = 0; i < 3; ++i) m.addItem (101 + i, names[i], true, i == cur);
     juce::Component::SafePointer<juce::Component> sp (&c);
     m.showMenuAsync (juce::PopupMenu::Options(), [sp] (int r) { handleSizeChoice (r, sp.getComponent()); });

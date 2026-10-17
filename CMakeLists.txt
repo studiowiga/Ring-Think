@@ -1,4 +1,11 @@
 cmake_minimum_required(VERSION 3.22)
+
+# macOS: universal binary (Apple Silicon + Intel), minimum macOS 10.13 (must be set BEFORE project())
+if(APPLE)
+  set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "" FORCE)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "" FORCE)
+endif()
+
 project(WigaRingThink VERSION 2.1.0)
 
 include(FetchContent)
@@ -11,11 +18,19 @@ FetchContent_MakeAvailable(JUCE)
 # the pedal picture is embedded into the plugin (no external file needed at runtime)
 juce_add_binary_data(RingAssets SOURCES background.png pitchshift_white.png pitchshift_yellow.png)
 
+# VST3 everywhere; Audio Unit in addition on macOS (Logic, GarageBand, ...)
+if(APPLE)
+  set(RING_FORMATS VST3 AU)
+else()
+  set(RING_FORMATS VST3)
+endif()
+
 juce_add_plugin(RingThingSSB
   COMPANY_NAME "Studio Wiga"
   PLUGIN_MANUFACTURER_CODE Wiga
   PLUGIN_CODE WgRt
-  FORMATS VST3
+  FORMATS ${RING_FORMATS}
+  AU_MAIN_TYPE kAudioUnitType_MusicEffect
   VST3_CATEGORIES Fx Modulation
   IS_SYNTH FALSE
   NEEDS_MIDI_INPUT TRUE

@@ -1,4 +1,4 @@
-# Ring Think (Studio Wiga) - VST3, Windows - personal use
+# Ring Think (Studio Wiga) - VST3 (Windows + macOS) and AU (macOS) - personal use
 
 ## Repository layout (everything at the ROOT of the repo, no sub-folder except .github)
     CMakeLists.txt
@@ -13,8 +13,23 @@
 1. Create a NEW empty GitHub repository, then "Add file > Upload files" and drop the files above.
 2. Create .github/workflows/build.yml by hand if the upload skipped the hidden folder
    (Add file > Create new file, type the path .github/workflows/build.yml and paste the file content).
-3. Actions tab > "Build VST3 Windows" > open the green run > Artifacts > WigaRingThink-VST3-Windows.
-4. Unzip, copy "Ring Think.vst3" to C:\Program Files\Common Files\VST3\ and rescan plugins in your DAW.
+3. Actions tab > "Build Windows + macOS" > open the green run > Artifacts:
+   - RingThink-VST3-Windows  (Windows)
+   - RingThink-macOS-VST3-AU (macOS: universal Apple Silicon + Intel)
+
+### Windows
+Unzip, copy "Ring Think.vst3" to C:\Program Files\Common Files\VST3\ and rescan plugins in your DAW.
+
+### macOS
+1. Unzip the artifact. Copy "Ring Think.vst3" to /Library/Audio/Plug-Ins/VST3/
+   and "Ring Think.component" (Audio Unit, for Logic/GarageBand) to /Library/Audio/Plug-Ins/Components/
+   (or the same folders inside your user ~/Library).
+2. The plugin is not notarized by Apple, so macOS blocks downloaded files. Open Terminal and run once:
+       xattr -cr "/Library/Audio/Plug-Ins/VST3/Ring Think.vst3"
+       xattr -cr "/Library/Audio/Plug-Ins/Components/Ring Think.component"
+3. Rescan plugins in your DAW (Logic: restart it; AU validation runs automatically).
 
 ## User presets
-Saved in %APPDATA%\WigaRingThink\user_presets.xml (shared by every project).
+Windows: %APPDATA%\WigaRingThink\user_presets.xml
+macOS: ~/Library/WigaRingThink/user_presets.xml
+(shared by every project).

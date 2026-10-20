@@ -33,3 +33,6 @@ Unzip, copy "Ring Think.vst3" to C:\Program Files\Common Files\VST3\ and rescan 
 Windows: %APPDATA%\WigaRingThink\user_presets.xml
 macOS: ~/Library/WigaRingThink/user_presets.xml
 (shared by every project).
+
+## Files (v2.2.0)
+All the PNG files at the repo root are the pedal artwork (background, knob caps, LEDs, labels...) and are embedded in the plugin by CMakeLists.txt: upload them all.

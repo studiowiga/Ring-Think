@@ -9,8 +9,8 @@ public:
     explicit RingEditor (RingProcessor&);
     ~RingEditor() override;
     void resized() override;
-    int  getScaleIndex() const;          // -1 if the size is not one of the 3 menu sizes
-    void setScaleIndex (int idx);        // 0..2 = 50 %, 75 %, 100 %  (-1 = default 60 %)
+    int  getScaleIndex() const;          // 1, 2 = 75 %, 100 %  (-1 = default / free size)
+    void setScaleIndex (int idx);        // 1, 2 = 75 %, 100 %  (-1 or 0 = default 60 %, the minimum size)
 
 private:
     RingProcessor& proc;

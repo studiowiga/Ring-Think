@@ -3,29 +3,79 @@
 
 namespace
 {
-    // Design size = size of background.png. Every coordinate below is in these pixels.
-    constexpr int kW = 993, kH = 822;
-    const float kKnobX[5] = { 97.5f, 257.5f, 417.5f, 577.5f, 737.5f };
-    constexpr float kKnobY = 181.0f, kKnobR = 60.0f;
-    constexpr float kBigX = 892.0f, kBigY = 179.0f;
-    constexpr float kLadderX = 657.0f, kLadderY0 = 309.0f, kLadderDY = 34.5f;
+    // Design size = size of background.png (pedal + side margins for the jacks). Every coordinate is in these pixels.
+    constexpr int kW = 1240, kH = 928;
+    constexpr int kRefW = 993;                       // window sizes (60 / 75 / 100 %) are expressed against this reference width
+    const float kKnobX[5] = { 166.0f, 344.0f, 524.5f, 704.0f, 881.0f };
+    constexpr float kKnobY = 203.0f, kKnobR = 70.0f;
+    constexpr int kBigX = 1057, kBigY = 204;         // big MODE cap (centre pixel of the sprite)
+    constexpr int kLadX = 790;
+    const int kLadY[9] = { 351, 390, 428, 467, 506, 544, 583, 621, 660 };
+    const int kModeLedX[3] = { 1009, 1055, 1103 }, kModeLedY[3] = { 318, 348, 317 };   // RM, UB, LB
+    const int kFaceX[3] = { 986, 1034, 1082 };       // button faces (44 x 98) at y = 287
+    constexpr int kFaceY = 287, kFaceW = 44, kFaceH = 98;
+    const int kLabX[3] = { 990, 1042, 1092 }, kLabY[3] = { 345, 313, 345 };
+    constexpr int kPresetLedX = 458, kPresetLedY = 759, kStatusLedX = 766, kStatusLedY = 759;
+    constexpr int kFsLX = 256, kFsRX = 967, kFsY = 782;
+    constexpr int kPsX = 986, kPsY = 404;            // PITCH-SHIFT label sprite
+    constexpr int kPillX = 767, kPillY = 40, kPillW = 130, kPillH = 32;   // PHASER switch
+    constexpr int kPhLedX = 787, kPhLedY = 56, kPhTxtX = 805, kPhTxtY = 50;
     const juce::Colour kOrange (0xffff9a1a), kRed (0xffff2a2a), kBtnOrange (0xfff95527), kYellow (0xffffd600);
-    const float kScales[3] = { 0.5f, 0.75f, 1.0f };
+    const float kScales[3] = { 0.6f, 0.75f, 1.0f };   // index 0 is the default size (the old 50 % slot)
     constexpr float kDefaultScale = 0.6f;
 
-    void drawLed (juce::Graphics& g, float cx, float cy, float r, bool lit, juce::Colour c)
+    // all pictures of the pedal (real photo-style sprites cut out of the artwork)
+    struct Art
     {
-        g.setColour (juce::Colour (0xff0a0603));
-        g.fillEllipse (cx - r - 2.5f, cy - r - 2.5f, 2 * r + 5, 2 * r + 5);
-        if (lit)
+        Art()
         {
-            g.setGradientFill (juce::ColourGradient (c.withAlpha (0.38f), cx, cy, c.withAlpha (0.0f), cx + r * 2.4f, cy, true));
-            g.fillEllipse (cx - r * 2.4f, cy - r * 2.4f, r * 4.8f, r * 4.8f);
-            g.setGradientFill (juce::ColourGradient (c.brighter (0.9f), cx - r * 0.3f, cy - r * 0.3f, c.darker (0.15f), cx + r, cy + r, true));
+            auto L = [] (const void* d, int n) { return juce::ImageCache::getFromMemory (d, n); };
+            bg      = L (BinaryData::background_png,  BinaryData::background_pngSize);
+            capBig  = L (BinaryData::cap_big_png,     BinaryData::cap_big_pngSize);
+            capL    = L (BinaryData::cap_fsL_png,     BinaryData::cap_fsL_pngSize);
+            capR    = L (BinaryData::cap_fsR_png,     BinaryData::cap_fsR_pngSize);
+            faceOn  = L (BinaryData::face_on_png,     BinaryData::face_on_pngSize);
+            lab[0]  = L (BinaryData::label_rm_png,    BinaryData::label_rm_pngSize);
+            lab[1]  = L (BinaryData::label_ub_png,    BinaryData::label_ub_pngSize);
+            lab[2]  = L (BinaryData::label_lb_png,    BinaryData::label_lb_pngSize);
+            psWhite  = L (BinaryData::pitchshift_white_png,  BinaryData::pitchshift_white_pngSize);
+            psYellow = L (BinaryData::pitchshift_yellow_png, BinaryData::pitchshift_yellow_pngSize);
+            phWhite  = L (BinaryData::phaser_white_png,  BinaryData::phaser_white_pngSize);
+            phYellow = L (BinaryData::phaser_yellow_png, BinaryData::phaser_yellow_pngSize);
+            ledOn[0]  = L (BinaryData::led_s_on_png,  BinaryData::led_s_on_pngSize);
+            ledOff[0] = L (BinaryData::led_s_off_png, BinaryData::led_s_off_pngSize);
+            ledOn[1]  = L (BinaryData::led_p_on_png,  BinaryData::led_p_on_pngSize);
+            ledOff[1] = L (BinaryData::led_p_off_png, BinaryData::led_p_off_pngSize);
+            ledOn[2]  = L (BinaryData::led_r_on_png,  BinaryData::led_r_on_pngSize);
+            ledOff[2] = L (BinaryData::led_r_off_png, BinaryData::led_r_off_pngSize);
         }
-        else
-            g.setColour (c.darker (0.88f));
-        g.fillEllipse (cx - r, cy - r, 2 * r, 2 * r);
+        juce::Image bg, capBig, capL, capR, faceOn, lab[3], psWhite, psYellow, phWhite, phYellow, ledOn[3], ledOff[3];
+    };
+
+    // draws a sprite whose centre pixel is (cx, cy), optionally scaled around that centre
+    void drawSprite (juce::Graphics& g, const juce::Image& im, float cx, float cy, float scale = 1.0f, float alpha = 1.0f)
+    {
+        const float r = (float) im.getWidth() * 0.5f;
+        g.setOpacity (alpha);
+        g.drawImageTransformed (im, juce::AffineTransform::translation (-r, -r).scaled (scale).translated (cx + 0.5f, cy + 0.5f));
+        g.setOpacity (1.0f);
+    }
+
+    // real LED: dark glassy dome when off, cross-faded to the glowing bead + light bloom when lit
+    // kind: 0 = small amber, 1 = preset amber, 2 = status red
+    void drawLedSprite (juce::Graphics& g, const Art& art, int kind, float cx, float cy, float level, juce::Colour glow, float scale = 1.0f)
+    {
+        const float r = (float) art.ledOff[kind].getWidth() * 0.5f;
+        if (level > 0.01f)
+        {
+            const float gr = r * 2.15f * scale, gx = cx + 0.5f, gy = cy + 0.5f;
+            juce::ColourGradient cg (glow.withAlpha (0.55f * level), gx, gy, glow.withAlpha (0.0f), gx + gr, gy, true);
+            cg.addColour (0.35, glow.withAlpha (0.30f * level));
+            g.setGradientFill (cg);
+            g.fillEllipse (gx - gr, gy - gr, 2 * gr, 2 * gr);
+        }
+        drawSprite (g, art.ledOff[kind], cx, cy, scale, 1.0f);
+        if (level > 0.01f) drawSprite (g, art.ledOn[kind], cx, cy, scale, level);
     }
 
     void setParamGesture (juce::AudioProcessorValueTreeState& apvts, const char* id, float v, bool begin, bool end)
@@ -59,26 +109,27 @@ struct PedalSlider : juce::Slider
 // ------------------------------------------------------------------ knob look
 struct PedalKnobLNF : juce::LookAndFeel_V4
 {
+    // the knob itself is part of the artwork (a real, lit black knob); only the white pointer is drawn live
     void drawRotarySlider (juce::Graphics& g, int x, int y, int w, int h, float pos,
                            float a0, float a1, juce::Slider&) override
     {
         const auto b = juce::Rectangle<float> ((float) x, (float) y, (float) w, (float) h);
-        const auto c = b.getCentre();
-        const float r = juce::jmin (b.getWidth(), b.getHeight()) * 0.5f;
-        g.setColour (juce::Colour (0xff060606));
-        g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-        const float r2 = r * 0.95f;
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xff3d3f40), c.x - r * 0.35f, c.y - r * 0.5f,
-                                                 juce::Colour (0xff1c1d1d), c.x + r * 0.6f, c.y + r * 0.8f, true));
-        g.fillEllipse (c.x - r2, c.y - r2, 2 * r2, 2 * r2);
-        g.setColour (juce::Colours::white.withAlpha (0.13f));
-        g.drawEllipse (c.x - r * 0.80f, c.y - r * 0.80f, r * 1.6f, r * 1.6f, 2.0f);
+        const auto c = b.getCentre() + juce::Point<float> (0.5f, 0.5f);
         const float ang = a0 + pos * (a1 - a0);
         const float sx = std::sin (ang), sy = -std::cos (ang);
+        const juce::Point<float> p0 (c.x + sx * 15.0f, c.y + sy * 15.0f), p1 (c.x + sx * 49.0f, c.y + sy * 49.0f);
+        juce::Path line; line.startNewSubPath (p0); line.lineTo (p1);
+        // soft shadow on the knob face, thin dark rim, white moulded pointer, small specular streak
+        g.setColour (juce::Colours::black.withAlpha (0.35f));
+        g.strokePath (line, juce::PathStrokeType (8.5f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                      juce::AffineTransform::translation (1.2f, 1.8f));
+        g.setColour (juce::Colour (0xff050505).withAlpha (0.85f));
+        g.strokePath (line, juce::PathStrokeType (7.4f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
+        g.setColour (juce::Colour (0xfff2f2f3));
+        g.strokePath (line, juce::PathStrokeType (5.2f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded));
         g.setColour (juce::Colours::white);
-        g.drawLine (c.x + sx * r * 0.28f, c.y + sy * r * 0.28f, c.x + sx * r * 0.78f, c.y + sy * r * 0.78f, 7.0f);
-        g.fillEllipse (c.x + sx * r * 0.28f - 3.5f, c.y + sy * r * 0.28f - 3.5f, 7.0f, 7.0f);
-        g.fillEllipse (c.x + sx * r * 0.78f - 3.5f, c.y + sy * r * 0.78f - 3.5f, 7.0f, 7.0f);
+        g.strokePath (line, juce::PathStrokeType (1.8f, juce::PathStrokeType::curved, juce::PathStrokeType::rounded),
+                      juce::AffineTransform::translation (-0.9f, -0.5f));
     }
 };
 
@@ -86,26 +137,39 @@ struct PedalKnobLNF : juce::LookAndFeel_V4
 class BigKnob : public juce::Component, private juce::Timer
 {
 public:
-    explicit BigKnob (RingProcessor& p) : proc (p) {}
+    BigKnob (RingProcessor& p, const Art& a) : proc (p), art (a) {}
 
     bool isHoldBlinking() const { return holding && ! moved && (juce::Time::getMillisecondCounter() - downTime) > 2000; }
 
     void paint (juce::Graphics& g) override
     {
-        const auto b = getLocalBounds().toFloat();
-        const auto c = b.getCentre();
-        const float r = 58.0f;
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xfff2edd8), c.x - r * 0.6f, c.y - r * 0.8f,
-                                                 juce::Colour (0xffbdb596), c.x + r * 0.7f, c.y + r * 0.9f, true));
-        g.fillEllipse (c.x - r, c.y - r, 2 * r, 2 * r);
-        g.setColour (juce::Colour (0xff111111));
-        g.drawEllipse (c.x - 49.0f, c.y - 49.0f, 98.0f, 98.0f, 3.5f);
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xfffaf6e6), c.x - 20, c.y - 30, juce::Colour (0xffe6e0c8), c.x + 30, c.y + 40, true));
-        g.fillEllipse (c.x - 46.0f, c.y - 46.0f, 92.0f, 92.0f);
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        const float cx = 75.0f, cy = 75.0f;                 // centre pixel of the 151 x 151 component
+        const float sc = holding ? 0.955f : 1.0f;           // the cap sinks when pushed
+        const float rr = 69.5f;
+        // contact shadow around the cap (tighter and darker when pushed)
+        {
+            juce::ColourGradient cg (juce::Colours::black.withAlpha (holding ? 0.90f : 0.55f), cx + 0.5f, cy + (holding ? 1.0f : 3.0f),
+                                     juce::Colours::black.withAlpha (0.0f), cx + 0.5f, cy + (holding ? 1.0f : 3.0f) + rr * 1.13f, true);
+            cg.addColour (0.86, juce::Colours::black.withAlpha (holding ? 0.90f : 0.55f));
+            g.setGradientFill (cg);
+            g.fillEllipse (cx + 0.5f - rr * 1.13f, cy + (holding ? 1.0f : 3.0f) - rr * 1.13f, rr * 2.26f, rr * 2.26f);
+        }
+        drawSprite (g, art.capBig, cx, cy, sc);
+        if (holding)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.16f));
+            g.fillEllipse (cx + 0.5f - rr * sc, cy + 0.5f - rr * sc, 2 * rr * sc, 2 * rr * sc);
+        }
+        // engraved dot = selected preset (turns with the preset number)
         const int slot = proc.getCurrentSlot();
         const float ang = juce::degreesToRadians (-135.0f + 270.0f * (float) slot / 9.0f);
-        g.setColour (juce::Colour (0xff5a5238));
-        g.fillEllipse (c.x + std::sin (ang) * 34.0f - 4.0f, c.y - std::cos (ang) * 34.0f - 4.0f, 8.0f, 8.0f);
+        const float dx = cx + 0.5f + std::sin (ang) * 41.0f * sc, dy = cy + 0.5f - std::cos (ang) * 41.0f * sc;
+        g.setColour (juce::Colours::white.withAlpha (0.55f));
+        g.fillEllipse (dx - 5.3f + 0.9f, dy - 5.3f + 1.1f, 10.6f, 10.6f);
+        juce::ColourGradient dg (juce::Colour (0xff2a2418), dx - 2.0f, dy - 2.0f, juce::Colour (0xff6d634a), dx + 3.5f, dy + 3.5f, false);
+        g.setGradientFill (dg);
+        g.fillEllipse (dx - 4.8f, dy - 4.8f, 9.6f, 9.6f);
     }
 
     void mouseDown (const juce::MouseEvent& e) override
@@ -176,6 +240,7 @@ private:
     }
 
     RingProcessor& proc;
+    const Art& art;
     bool holding = false, moved = false;
     float accum = 0.0f; int lastX = 0, lastY = 0;
     juce::uint32 downTime = 0;
@@ -204,8 +269,10 @@ public:
     void mouseDown (const juce::MouseEvent& e) override
     {
         if (e.mods.isPopupMenu()) { showSizeMenuFor (*this); return; }
-        const int row = (int) ((e.y) / kLadderDY);
-        proc.loadPreset (juce::jlimit (1, 9, row + 1));
+        const int y = e.y + getY();
+        int best = 0, bd = 100000;
+        for (int i = 0; i < 9; ++i) if (std::abs (y - kLadY[i]) < bd) { bd = std::abs (y - kLadY[i]); best = i; }
+        proc.loadPreset (best + 1);
     }
     void paint (juce::Graphics&) override {}
 private:
@@ -216,7 +283,7 @@ private:
 class Footswitch : public juce::Component
 {
 public:
-    Footswitch (RingProcessor& p, bool presetSwitch) : proc (p), isPreset (presetSwitch) {}
+    Footswitch (RingProcessor& p, const Art& a, bool presetSwitch) : proc (p), art (a), isPreset (presetSwitch) {}
     ~Footswitch() override
     {
         if (down && isPreset) setParamGesture (proc.apvts, "presetfsw", 0.0f, false, true);   // never leave the switch stuck
@@ -224,33 +291,20 @@ public:
 
     void paint (juce::Graphics& g) override
     {
-        const auto b = getLocalBounds().toFloat().reduced (3.0f);
-        const float w = b.getWidth(), h = b.getHeight();
-        juce::Path hex;
-        hex.startNewSubPath (b.getX(), b.getCentreY());
-        hex.lineTo (b.getX() + w * 0.25f, b.getY());
-        hex.lineTo (b.getX() + w * 0.75f, b.getY());
-        hex.lineTo (b.getRight(), b.getCentreY());
-        hex.lineTo (b.getX() + w * 0.75f, b.getBottom());
-        hex.lineTo (b.getX() + w * 0.25f, b.getBottom());
-        hex.closeSubPath();
-        auto rounded = hex.createPathWithRoundedCorners (7.0f);
-        g.setGradientFill (juce::ColourGradient (juce::Colour (0xffe9e9e9), b.getX(), b.getY(), juce::Colour (0xff8a8a8a), b.getX(), b.getBottom(), false));
-        g.fillPath (rounded);
-        g.setColour (juce::Colour (0xff111111));
-        g.strokePath (rounded, juce::PathStrokeType (3.0f));
-        const auto c = b.getCentre();
-        const float r = 37.0f;
-        g.setColour (juce::Colour (0xff3a3a3a));
-        g.fillEllipse (c.x - r - 4, c.y - r - 4, 2 * r + 8, 2 * r + 8);
-        const float off = down ? 1.5f : 0.0f;
-        g.setGradientFill (juce::ColourGradient (down ? juce::Colour (0xffaaaaaa) : juce::Colour (0xffe4e4e4), c.x - 12, c.y - 18 + off,
-                                                 down ? juce::Colour (0xff7d7d7d) : juce::Colour (0xffa9a9a9), c.x + 18, c.y + 26 + off, true));
-        g.fillEllipse (c.x - r, c.y - r + off, 2 * r, 2 * r);
+        g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
+        const float cx = 65.0f, cy = 65.0f;               // centre pixel of the 131 x 131 component
+        const float sc = down ? 0.945f : 1.0f;            // the cap sinks into its ring when pressed
+        const float rr = 40.5f;
+        drawSprite (g, isPreset ? art.capL : art.capR, cx, cy, sc);
+        if (down)
+        {
+            g.setColour (juce::Colours::black.withAlpha (0.20f));
+            g.fillEllipse (cx + 0.5f - rr * sc, cy + 0.5f - rr * sc, 2 * rr * sc, 2 * rr * sc);
+        }
         if (proc.getLearnTarget() == target() && (juce::Time::getMillisecondCounter() / 300) % 2 == 0)
         {
             g.setColour (kOrange);
-            g.drawEllipse (c.x - r - 7, c.y - r - 7, 2 * r + 14, 2 * r + 14, 3.0f);
+            g.drawEllipse (cx + 0.5f - rr - 6, cy + 0.5f - rr - 6, 2 * rr + 12, 2 * rr + 12, 3.0f);
         }
     }
 
@@ -303,6 +357,7 @@ private:
     }
 
     RingProcessor& proc;
+    const Art& art;
     bool isPreset, down = false;
 };
 
@@ -311,13 +366,11 @@ class PedalContent : public juce::Component, private juce::Timer
 {
 public:
     explicit PedalContent (RingProcessor& p)
-        : proc (p), bigKnob (p), rmZone (p, "rm"), ubZone (p, "ub"), lbZone (p, "lb"), psZone (p, "ps"), phZone (p, "ph"),
-          ladder (p), presetSw (p, true), bypassSw (p, false)
+        : proc (p), bigKnob (p, art), rmZone (p, "rm"), ubZone (p, "ub"), lbZone (p, "lb"), psZone (p, "ps"), phZone (p, "ph"),
+          ladder (p), presetSw (p, art, true), bypassSw (p, art, false)
     {
-        bg = juce::ImageCache::getFromMemory (BinaryData::background_png, BinaryData::background_pngSize);
-        psWhite  = juce::ImageCache::getFromMemory (BinaryData::pitchshift_white_png,  BinaryData::pitchshift_white_pngSize);
-        psYellow = juce::ImageCache::getFromMemory (BinaryData::pitchshift_yellow_png, BinaryData::pitchshift_yellow_pngSize);
         setSize (kW, kH);
+        for (auto& l : lvl) l = 0.0f;
 
         juce::Slider* ks[5] = { &blend, &wave, &filter, &fine, &coarse };
         const char* ids[5] = { "blend", "wave", "filter", "fine", "coarse" };
@@ -342,15 +395,15 @@ public:
             s.setDoubleClickReturnValue (true, proc.apvts.getParameter (ids[i])->convertFrom0to1 (proc.apvts.getParameter (ids[i])->getDefaultValue()));
         }
 
-        addAndMakeVisible (bigKnob);  bigKnob.setBounds ((int) kBigX - 60, (int) kBigY - 60, 120, 120);
-        addAndMakeVisible (rmZone);   rmZone.setBounds (829, 253, 39, 85);
-        addAndMakeVisible (ubZone);   ubZone.setBounds (873, 253, 38, 85);
-        addAndMakeVisible (lbZone);   lbZone.setBounds (914, 253, 40, 85);
-        addAndMakeVisible (psZone);   psZone.setBounds (830, 354, 126, 24);
-        addAndMakeVisible (phZone);   phZone.setBounds (690, 28, 104, 24);
-        addAndMakeVisible (ladder);   ladder.setBounds (622, (int) (kLadderY0 - kLadderDY / 2), 194, (int) (kLadderDY * 9));
-        addAndMakeVisible (presetSw); presetSw.setBounds (118, 638, 124, 110);
-        addAndMakeVisible (bypassSw); bypassSw.setBounds (753, 638, 124, 110);
+        addAndMakeVisible (bigKnob);  bigKnob.setBounds (kBigX - 75, kBigY - 75, 151, 151);
+        addAndMakeVisible (rmZone);   rmZone.setBounds (kFaceX[0], kFaceY, kFaceW, kFaceH);
+        addAndMakeVisible (ubZone);   ubZone.setBounds (kFaceX[1], kFaceY, kFaceW, kFaceH);
+        addAndMakeVisible (lbZone);   lbZone.setBounds (kFaceX[2], kFaceY, kFaceW, kFaceH);
+        addAndMakeVisible (psZone);   psZone.setBounds (kPsX - 6, kPsY - 5, 154, 32);
+        addAndMakeVisible (phZone);   phZone.setBounds (kPillX, kPillY, kPillW, kPillH);
+        addAndMakeVisible (ladder);   ladder.setBounds (751, 331, 218, 354);
+        addAndMakeVisible (presetSw); presetSw.setBounds (kFsLX - 65, kFsY - 65, 131, 131);
+        addAndMakeVisible (bypassSw); bypassSw.setBounds (kFsRX - 65, kFsY - 65, 131, 131);
         startTimerHz (30);
     }
 
@@ -367,58 +420,43 @@ public:
     void paint (juce::Graphics& g) override
     {
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-        g.drawImage (bg, getLocalBounds().toFloat());
+        g.drawImage (art.bg, getLocalBounds().toFloat());
 
         const auto now = juce::Time::getMillisecondCounter();
         const int modes = proc.getModes();
-        const int slot = proc.getCurrentSlot();
-        const bool dirty = proc.isPresetDirty();
-        const bool saveFlash = (now - proc.lastSaveMs) < 900 && ((now / 60) % 2 == 0);
-        const bool holdBlink = bigKnob.isHoldBlinking() && ((now / 60) % 2 == 0);
 
-        // mode buttons: orange fill + label when active, LEDs follow
-        struct Btn { int bit; juce::Rectangle<int> r; const char* txt; float lx, ly, ledX, ledY; };
-        const Btn btns[3] = {
-            { kRM, { 829, 253, 39, 85 }, "RM", 850.f, 314.f, 850.f, 281.f },
-            { kUB, { 873, 253, 38, 85 }, "UB", 893.f, 284.f, 893.f, 306.f },
-            { kLB, { 914, 253, 40, 85 }, "LB", 934.f, 314.f, 934.f, 281.f } };
-        for (const auto& b : btns)
+        // mode buttons: the orange face lights up (with a soft halo), the label stays white
+        for (int i = 0; i < 3; ++i)
         {
-            const bool on = (modes & b.bit) != 0;
-            if (on)
+            const float L = lvl[11 + i];
+            if (L > 0.01f)
             {
-                g.setColour (kBtnOrange);
-                g.fillRect (b.r);
-                g.setColour (juce::Colours::white);
-                g.setFont (juce::Font (juce::FontOptions (17.0f, juce::Font::bold)));
-                g.drawText (b.txt, juce::Rectangle<float> (b.lx - 20.0f, b.ly - 10.0f, 40.0f, 20.0f), juce::Justification::centred);
+                g.setColour (kBtnOrange.withAlpha (0.16f * L));
+                g.fillRoundedRectangle ((float) kFaceX[i] - 5.0f, (float) kFaceY - 5.0f, (float) kFaceW + 10.0f, (float) kFaceH + 10.0f, 4.0f);
+                g.setOpacity (L);
+                g.drawImageAt (art.faceOn, kFaceX[i], kFaceY);
+                g.setOpacity (1.0f);
             }
-            drawLed (g, b.ledX, b.ledY, 10.0f, on, kOrange);
+            g.drawImageAt (art.lab[i], kLabX[i], kLabY[i]);
         }
-        // PITCH-SHIFT label: yellow = on, white = off (the label lives in two sprites, not in the background)
-        g.drawImageAt ((modes & kPS) ? psYellow : psWhite, 829, 356);
+        for (int i = 0; i < 3; ++i)
+            drawLedSprite (g, art, 0, (float) kModeLedX[i], (float) kModeLedY[i], lvl[11 + i], kOrange);
 
-        // PHASER switch (top right of the body): LED + label, yellow when on
+        // PITCH-SHIFT label: yellow = on, white = off (the label lives in two sprites, not in the background)
+        g.drawImageAt ((modes & kPS) ? art.psYellow : art.psWhite, kPsX, kPsY);
+
+        // PHASER switch (top of the body): engraved pill, LED + label, yellow when on
         const bool phOn = (modes & kPH) != 0;
-        g.setColour (juce::Colours::black.withAlpha (0.55f));
-        g.fillRoundedRectangle (690.0f, 28.0f, 104.0f, 24.0f, 6.0f);
-        g.setColour (juce::Colours::white.withAlpha (0.35f));
-        g.drawRoundedRectangle (690.5f, 28.5f, 103.0f, 23.0f, 6.0f, 1.0f);
-        drawLed (g, 704.0f, 40.0f, 5.5f, phOn, kOrange);
-        g.setColour (phOn ? kYellow : juce::Colours::white);
-        g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
-        g.drawText ("PHASER", juce::Rectangle<float> (714.0f, 28.0f, 76.0f, 24.0f), juce::Justification::centred);
+        g.drawImageAt (phOn ? art.phYellow : art.phWhite, kPhTxtX, kPhTxtY);
+        drawLedSprite (g, art, 0, (float) kPhLedX, (float) kPhLedY, lvl[14], kOrange, 0.62f);
 
         // preset ladder LEDs
         for (int i = 0; i < 9; ++i)
-            drawLed (g, kLadderX, kLadderY0 + kLadderDY * (float) i, 11.0f, (i + 1 == slot) || saveFlash || holdBlink, kOrange);
+            drawLedSprite (g, art, 0, (float) kLadX, (float) kLadY[i], lvl[i], kOrange);
 
         // PRESET LED: solid = preset loaded, fast blink = knobs moved since loading, slow blink = tuning
-        bool presetLit = slot > 0;
-        if (slot > 0 && dirty) presetLit = (now / 120) % 2 == 0;
-        if (proc.isTuning()) presetLit = (now / 250) % 2 == 0;
-        drawLed (g, 362.0f, 674.0f, 12.0f, presetLit, kOrange);
-        drawLed (g, 633.0f, 674.0f, 12.0f, proc.apvts.getRawParameterValue ("active")->load() > 0.5f, kRed);
+        drawLedSprite (g, art, 1, (float) kPresetLedX, (float) kPresetLedY, lvl[9], kOrange);
+        drawLedSprite (g, art, 2, (float) kStatusLedX, (float) kStatusLedY, lvl[10], kRed);
 
         // small status line
         juce::String status;
@@ -430,23 +468,52 @@ public:
         else if (knobText.isNotEmpty() && (now - knobTextMs) < 1500) status = knobText;   // live knob percentage
         if (status.isNotEmpty())
         {
-            g.setColour (juce::Colour (0xffc8c8c8));
-            g.setFont (juce::Font (juce::FontOptions (13.0f, juce::Font::bold)));
-            g.drawText (status, 200, 784, 600, 18, juce::Justification::centred);
+            const juce::Rectangle<float> r (330.0f, 806.0f, 520.0f, 24.0f);
+            g.setColour (juce::Colours::black.withAlpha (0.55f));
+            g.fillRoundedRectangle (r, 8.0f);
+            g.setColour (juce::Colour (0xffdcdcdc));
+            g.setFont (juce::Font (juce::FontOptions (14.0f, juce::Font::bold)));
+            g.drawText (status, r.toNearestInt(), juce::Justification::centred);
         }
     }
 
 private:
-    void timerCallback() override { repaint(); }
+    // light level of every LED eased towards its target: fast attack, short afterglow like a real bulb
+    void updateLevels()
+    {
+        const auto now = juce::Time::getMillisecondCounter();
+        const int modes = proc.getModes();
+        const int slot = proc.getCurrentSlot();
+        const bool dirty = proc.isPresetDirty();
+        const bool saveFlash = (now - proc.lastSaveMs) < 900 && ((now / 60) % 2 == 0);
+        const bool holdBlink = bigKnob.isHoldBlinking() && ((now / 60) % 2 == 0);
+
+        bool presetLit = slot > 0;
+        if (slot > 0 && dirty) presetLit = (now / 120) % 2 == 0;
+        if (proc.isTuning()) presetLit = (now / 250) % 2 == 0;
+
+        bool target[15];
+        for (int i = 0; i < 9; ++i) target[i] = (i + 1 == slot) || saveFlash || holdBlink;
+        target[9]  = presetLit;
+        target[10] = proc.apvts.getRawParameterValue ("active")->load() > 0.5f;
+        target[11] = (modes & kRM) != 0;
+        target[12] = (modes & kUB) != 0;
+        target[13] = (modes & kLB) != 0;
+        target[14] = (modes & kPH) != 0;
+        for (int i = 0; i < 15; ++i)
+            lvl[i] += (target[i] ? 1.0f - lvl[i] : -lvl[i]) * (target[i] ? 0.70f : 0.42f);
+    }
+
+    void timerCallback() override { updateLevels(); repaint(); }
 
     RingProcessor& proc;
-    juce::Image bg;
+    Art art;
     PedalKnobLNF lnf;
     PedalSlider blend, wave, filter, fine, coarse;
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> attachments;
-    juce::Image psWhite, psYellow;
     juce::String knobText;                // e.g. "BLEND  63 %" shown in the status line while a knob moves
     juce::uint32 knobTextMs = 0;
+    float lvl[15];
     BigKnob bigKnob;
     ToggleZone rmZone, ubZone, lbZone, psZone, phZone;
     LadderZone ladder;
@@ -459,7 +526,9 @@ RingEditor::RingEditor (RingProcessor& p) : AudioProcessorEditor (&p), proc (p)
     content = std::make_unique<PedalContent> (proc);
     addAndMakeVisible (*content);
     setResizable (true, true);
-    setResizeLimits (kW / 2, kH / 2, 1500, 1242);
+    const int minW = (int) std::lround (kRefW * kDefaultScale);                 // never smaller than the default size
+    const int maxW = 1500;
+    setResizeLimits (minW, (int) std::lround ((double) minW * kH / kW), maxW, (int) std::lround ((double) maxW * kH / kW));
     getConstrainer()->setFixedAspectRatio ((double) kW / (double) kH);
     setScaleIndex (juce::jlimit (-1, 2, proc.uiScaleIdx.load()));   // default: 60 %
 }
@@ -475,35 +544,41 @@ void RingEditor::resized()
 
 int RingEditor::getScaleIndex() const
 {
-    const float s = (float) getWidth() / (float) kW;
-    for (int i = 0; i < 3; ++i) if (std::abs (s - kScales[i]) < 0.02f) return i;
+    const float s = (float) getWidth() / (float) kRefW;
+    for (int i = 1; i < 3; ++i) if (std::abs (s - kScales[i]) < 0.02f) return i;
     return -1;
 }
 
 void RingEditor::setScaleIndex (int idx)
 {
     idx = juce::jlimit (-1, 2, idx);
+    if (idx == 0) idx = -1;                                   // the old 50 % slot is now the default size
     proc.uiScaleIdx = idx;
     const float s = idx < 0 ? kDefaultScale : kScales[idx];
-    setSize ((int) std::lround (kW * s), (int) std::lround (kH * s));
+    const int w = (int) std::lround (kRefW * s);
+    setSize (w, (int) std::lround ((double) w * kH / kW));
+}
+
+static bool isDefaultSize (const RingEditor* ed)
+{
+    return ed != nullptr && std::abs ((float) ed->getWidth() / (float) kRefW - kDefaultScale) < 0.02f;
 }
 
 static void addSizeSubmenu (juce::PopupMenu& m, juce::Component& c)
 {
     const auto* ed = c.findParentComponentOfClass<RingEditor>();
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
-    const char* names[3] = { "50 %", "75 %", "100 %" };
     juce::PopupMenu sub;
-    const bool isDef = ed != nullptr && std::abs ((float) ed->getWidth() / (float) kW - kDefaultScale) < 0.02f;
-    sub.addItem (104, "60 % (default)", true, isDef);
-    for (int i = 0; i < 3; ++i) sub.addItem (101 + i, names[i], true, i == cur);
+    sub.addItem (104, "60 % (default)", true, isDefaultSize (ed));
+    sub.addItem (102, "75 %", true, cur == 1);
+    sub.addItem (103, "100 %", true, cur == 2);
     m.addSeparator();
     m.addSubMenu ("Plugin size", sub);
 }
 
 static void handleSizeChoice (int r, juce::Component* c)
 {
-    if (c == nullptr || r < 101 || r > 104) return;
+    if (c == nullptr || r < 102 || r > 104) return;
     if (auto* ed = c->findParentComponentOfClass<RingEditor>()) ed->setScaleIndex (r == 104 ? -1 : r - 101);
 }
 
@@ -511,12 +586,11 @@ static void showSizeMenuFor (juce::Component& c)
 {
     const auto* ed = c.findParentComponentOfClass<RingEditor>();
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
-    const char* names[3] = { "50 %", "75 %", "100 %" };
     juce::PopupMenu m;
     m.addSectionHeader ("Plugin size");
-    const bool isDef = ed != nullptr && std::abs ((float) ed->getWidth() / (float) kW - kDefaultScale) < 0.02f;
-    m.addItem (104, "60 % (default)", true, isDef);
-    for (int i = 0; i < 3; ++i) m.addItem (101 + i, names[i], true, i == cur);
+    m.addItem (104, "60 % (default)", true, isDefaultSize (ed));
+    m.addItem (102, "75 %", true, cur == 1);
+    m.addItem (103, "100 %", true, cur == 2);
     juce::Component::SafePointer<juce::Component> sp (&c);
     m.showMenuAsync (juce::PopupMenu::Options(), [sp] (int r) { handleSizeChoice (r, sp.getComponent()); });
 }

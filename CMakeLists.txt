@@ -6,7 +6,7 @@ if(APPLE)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "" FORCE)
 endif()
 
-project(WigaRingThink VERSION 2.1.0)
+project(WigaRingThink VERSION 2.2.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
@@ -16,7 +16,13 @@ FetchContent_Declare(JUCE
 FetchContent_MakeAvailable(JUCE)
 
 # the pedal picture is embedded into the plugin (no external file needed at runtime)
-juce_add_binary_data(RingAssets SOURCES background.png pitchshift_white.png pitchshift_yellow.png)
+juce_add_binary_data(RingAssets SOURCES
+  background.png
+  cap_big.png cap_fsL.png cap_fsR.png
+  face_on.png label_rm.png label_ub.png label_lb.png
+  pitchshift_white.png pitchshift_yellow.png
+  phaser_white.png phaser_yellow.png
+  led_s_on.png led_s_off.png led_p_on.png led_p_off.png led_r_on.png led_r_off.png)
 
 # VST3 everywhere; Audio Unit in addition on macOS (Logic, GarageBand, ...)
 if(APPLE)

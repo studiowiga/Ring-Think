@@ -10,7 +10,7 @@ public:
     ~RingEditor() override;
     void resized() override;
     int  getScaleIndex() const;          // 1, 2 = 75 %, 100 %  (-1 = default / free size)
-    void setScaleIndex (int idx);        // 1, 2 = 75 %, 100 %  (-1 or 0 = default 60 %, the minimum size)
+    void setScaleIndex (int idx);        // 1, 2 = 75 %, 100 %  (-1 or 0 = default 67 %, the minimum size)
 
 private:
     RingProcessor& proc;

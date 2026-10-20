@@ -21,8 +21,8 @@ namespace
     constexpr int kPillX = 767, kPillY = 40, kPillW = 130, kPillH = 32;   // PHASER switch
     constexpr int kPhLedX = 787, kPhLedY = 56, kPhTxtX = 805, kPhTxtY = 50;
     const juce::Colour kOrange (0xffff9a1a), kRed (0xffff2a2a), kBtnOrange (0xfff95527), kYellow (0xffffd600);
-    const float kScales[3] = { 0.6f, 0.75f, 1.0f };   // index 0 is the default size (the old 50 % slot)
-    constexpr float kDefaultScale = 0.6f;
+    const float kScales[3] = { 661.0f / 993.0f, 0.75f, 1.0f };   // index 0 is the default size (the old 50 % slot)
+    constexpr float kDefaultScale = 661.0f / 993.0f;      // default window = 661 x 495 px
 
     // all pictures of the pedal (real photo-style sprites cut out of the artwork)
     struct Art
@@ -530,7 +530,7 @@ RingEditor::RingEditor (RingProcessor& p) : AudioProcessorEditor (&p), proc (p)
     const int maxW = 1500;
     setResizeLimits (minW, (int) std::lround ((double) minW * kH / kW), maxW, (int) std::lround ((double) maxW * kH / kW));
     getConstrainer()->setFixedAspectRatio ((double) kW / (double) kH);
-    setScaleIndex (juce::jlimit (-1, 2, proc.uiScaleIdx.load()));   // default: 60 %
+    setScaleIndex (juce::jlimit (-1, 2, proc.uiScaleIdx.load()));   // default: 67 %
 }
 
 RingEditor::~RingEditor() = default;
@@ -569,7 +569,7 @@ static void addSizeSubmenu (juce::PopupMenu& m, juce::Component& c)
     const auto* ed = c.findParentComponentOfClass<RingEditor>();
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     juce::PopupMenu sub;
-    sub.addItem (104, "60 % (default)", true, isDefaultSize (ed));
+    sub.addItem (104, "67 % (default)", true, isDefaultSize (ed));
     sub.addItem (102, "75 %", true, cur == 1);
     sub.addItem (103, "100 %", true, cur == 2);
     m.addSeparator();
@@ -588,7 +588,7 @@ static void showSizeMenuFor (juce::Component& c)
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     juce::PopupMenu m;
     m.addSectionHeader ("Plugin size");
-    m.addItem (104, "60 % (default)", true, isDefaultSize (ed));
+    m.addItem (104, "67 % (default)", true, isDefaultSize (ed));
     m.addItem (102, "75 %", true, cur == 1);
     m.addItem (103, "100 %", true, cur == 2);
     juce::Component::SafePointer<juce::Component> sp (&c);

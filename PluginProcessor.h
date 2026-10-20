@@ -66,7 +66,7 @@ public:
     void cancelMidiLearn() { learnTarget = 0; }
     bool isBypassLatching() const { return bypassLatching.load(); }
     void setBypassLatching (bool b) { bypassLatching = b; }
-    std::atomic<int> uiScaleIdx { -1 };       // -1 = default size (60 %), 0..2 = 50 / 75 / 100 %
+    std::atomic<int> uiScaleIdx { -1 };       // -1 = default size (67 %), 0..2 = 50 / 75 / 100 %
     MidiTarget getLearnTarget() const { return (MidiTarget) learnTarget.load(); }
     void clearMidi (MidiTarget t);
     juce::String getMidiDescription (MidiTarget t) const;

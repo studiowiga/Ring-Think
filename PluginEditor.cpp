@@ -139,6 +139,7 @@ class BigKnob : public juce::Component, private juce::Timer
 public:
     BigKnob (RingProcessor& p, const Art& a) : proc (p), art (a) {}
 
+    bool isHeld() const { return holding; }
     bool isHoldBlinking() const { return holding && ! moved && (juce::Time::getMillisecondCounter() - downTime) > 2000; }
 
     void paint (juce::Graphics& g) override
@@ -289,6 +290,8 @@ public:
         if (down && isPreset) setParamGesture (proc.apvts, "presetfsw", 0.0f, false, true);   // never leave the switch stuck
     }
 
+    bool learnRingShown() const { return proc.getLearnTarget() == target() && (juce::Time::getMillisecondCounter() / 300) % 2 == 0; }
+
     void paint (juce::Graphics& g) override
     {
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
@@ -301,7 +304,7 @@ public:
             g.setColour (juce::Colours::black.withAlpha (0.20f));
             g.fillEllipse (cx + 0.5f - rr * sc, cy + 0.5f - rr * sc, 2 * rr * sc, 2 * rr * sc);
         }
-        if (proc.getLearnTarget() == target() && (juce::Time::getMillisecondCounter() / 300) % 2 == 0)
+        if (learnRingShown())
         {
             g.setColour (kOrange);
             g.drawEllipse (cx + 0.5f - rr - 6, cy + 0.5f - rr - 6, 2 * rr + 12, 2 * rr + 12, 3.0f);
@@ -459,16 +462,10 @@ public:
         drawLedSprite (g, art, 2, (float) kStatusLedX, (float) kStatusLedY, lvl[10], kRed);
 
         // small status line
-        juce::String status;
-        if (proc.isTunedActive()) status << "TUNED " << juce::String (proc.getTunedHz(), 1) << " Hz   ";
-        const auto m1 = proc.getMidiDescription (MidiTarget::PresetFsw), m2 = proc.getMidiDescription (MidiTarget::Bypass);
-        if (m1.isNotEmpty()) status << "MIDI PRESET/TUNE: " << m1 << "   ";
-        if (m2.isNotEmpty()) status << "MIDI BYPASS: " << m2;
-        if (proc.getLearnTarget() != MidiTarget::None) status = "MIDI LEARN: move a control / press a note...";
-        else if (knobText.isNotEmpty() && (now - knobTextMs) < 1500) status = knobText;   // live knob percentage
+        const juce::String status = statusText (now);
         if (status.isNotEmpty())
         {
-            const juce::Rectangle<float> r (330.0f, 806.0f, 520.0f, 24.0f);
+            const juce::Rectangle<float> r = kStatusRect;
             g.setColour (juce::Colours::black.withAlpha (0.55f));
             g.fillRoundedRectangle (r, 8.0f);
             g.setColour (juce::Colour (0xffdcdcdc));
@@ -478,6 +475,20 @@ public:
     }
 
 private:
+    static inline const juce::Rectangle<float> kStatusRect { 330.0f, 806.0f, 520.0f, 24.0f };
+
+    juce::String statusText (juce::uint32 now) const
+    {
+        juce::String status;
+        if (proc.isTunedActive()) status << "TUNED " << juce::String (proc.getTunedHz(), 1) << " Hz   ";
+        const auto m1 = proc.getMidiDescription (MidiTarget::PresetFsw), m2 = proc.getMidiDescription (MidiTarget::Bypass);
+        if (m1.isNotEmpty()) status << "MIDI PRESET/TUNE: " << m1 << "   ";
+        if (m2.isNotEmpty()) status << "MIDI BYPASS: " << m2;
+        if (proc.getLearnTarget() != MidiTarget::None) status = "MIDI LEARN: move a control / press a note...";
+        else if (knobText.isNotEmpty() && (now - knobTextMs) < 1500) status = knobText;   // live knob percentage
+        return status;
+    }
+
     // light level of every LED eased towards its target: fast attack, short afterglow like a real bulb
     void updateLevels()
     {
@@ -504,7 +515,56 @@ private:
             lvl[i] += (target[i] ? 1.0f - lvl[i] : -lvl[i]) * (target[i] ? 0.70f : 0.42f);
     }
 
-    void timerCallback() override { updateLevels(); repaint(); }
+    void timerCallback() override
+    {
+        // au cas où la fenêtre a été recréée par l'hôte (changement d'écran, d'échelle…)
+        if (auto* ed = findParentComponentOfClass<RingEditor>()) ed->useSoftwareRenderer();
+
+        updateLevels();
+
+        // on ne redessine une zone que si ce qu'elle affiche a vraiment changé (zéro travail au repos)
+        auto changed = [] (float& drawn, float now) { if (std::abs (drawn - now) < 0.002f) return false; drawn = now; return true; };
+        auto zone = [this] (juce::Rectangle<float> r) { repaint (r.toNearestInt().expanded (2)); };
+        auto ledZone = [&zone] (float cx, float cy, float halfSize) { zone ({ cx - halfSize, cy - halfSize, 2 * halfSize + 1, 2 * halfSize + 1 }); };
+
+        // LED des échelons de presets
+        for (int i = 0; i < 9; ++i)
+            if (changed (drawnLvl[i], lvl[i])) ledZone ((float) kLadX, (float) kLadY[i], 40.0f);
+        // LED PRESET et LED d'état (rouge)
+        if (changed (drawnLvl[9],  lvl[9]))  ledZone ((float) kPresetLedX, (float) kPresetLedY, 60.0f);
+        if (changed (drawnLvl[10], lvl[10])) ledZone ((float) kStatusLedX, (float) kStatusLedY, 60.0f);
+        // boutons RM / UB / LB : face orange + halo + LED
+        for (int i = 0; i < 3; ++i)
+            if (changed (drawnLvl[11 + i], lvl[11 + i]))
+            {
+                zone ({ (float) kFaceX[i] - 5.0f, (float) kFaceY - 5.0f, (float) kFaceW + 10.0f, (float) kFaceH + 10.0f });
+                ledZone ((float) kModeLedX[i], (float) kModeLedY[i], 40.0f);
+            }
+        // petite LED du switch PHASER
+        if (changed (drawnLvl[14], lvl[14])) ledZone ((float) kPhLedX, (float) kPhLedY, 26.0f);
+
+        // étiquettes PITCH-SHIFT et PHASER (jaune / blanc)
+        const int modes = proc.getModes();
+        if ((modes ^ drawnModes) & kPS) zone ({ (float) kPsX, (float) kPsY, (float) art.psWhite.getWidth(), (float) art.psWhite.getHeight() });
+        if ((modes ^ drawnModes) & kPH) zone ({ (float) kPhTxtX, (float) kPhTxtY, (float) art.phWhite.getWidth(), (float) art.phWhite.getHeight() });
+        drawnModes = modes;
+
+        // ligne d'état
+        const juce::String st = statusText (juce::Time::getMillisecondCounter());
+        if (st != drawnStatus) { drawnStatus = st; zone (kStatusRect); }
+
+        // gros bouton MODE : point du preset choisi, bouton enfoncé
+        const int slot = proc.getCurrentSlot();
+        if (slot != drawnSlot || bigKnob.isHeld() != drawnHeld)
+        {
+            drawnSlot = slot; drawnHeld = bigKnob.isHeld();
+            bigKnob.repaint();
+        }
+
+        // anneau clignotant du MIDI learn sur les footswitches
+        if (presetSw.learnRingShown() != drawnRingPreset) { drawnRingPreset = ! drawnRingPreset; presetSw.repaint(); }
+        if (bypassSw.learnRingShown() != drawnRingBypass) { drawnRingBypass = ! drawnRingBypass; bypassSw.repaint(); }
+    }
 
     RingProcessor& proc;
     Art art;
@@ -514,6 +574,13 @@ private:
     juce::String knobText;                // e.g. "BLEND  63 %" shown in the status line while a knob moves
     juce::uint32 knobTextMs = 0;
     float lvl[15];
+
+    // dernier état réellement dessiné : on ne redessine une zone que si elle a changé
+    float drawnLvl[15] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+    int drawnModes = -1, drawnSlot = -1;
+    bool drawnHeld = false, drawnRingPreset = false, drawnRingBypass = false;
+    juce::String drawnStatus;
+
     BigKnob bigKnob;
     ToggleZone rmZone, ubZone, lbZone, psZone, phZone;
     LadderZone ladder;
@@ -534,6 +601,28 @@ RingEditor::RingEditor (RingProcessor& p) : AudioProcessorEditor (&p), proc (p)
 }
 
 RingEditor::~RingEditor() = default;
+
+//==============================================================================
+// Anti-gel de la fenêtre (Windows) : JUCE 8 dessine par défaut avec Direct2D (carte graphique).
+// Avec certains pilotes (Intel notamment) la fenêtre du plugin cesse de se rafraîchir alors que
+// le DAW continue de tourner. Le moteur logiciel est stable partout et largement assez rapide ici.
+void RingEditor::useSoftwareRenderer()
+{
+   #if JUCE_WINDOWS
+    if (auto* peer = getPeer())
+    {
+        int sw = peer->getAvailableRenderingEngines().indexOf ("Software Renderer");
+        if (sw < 0) sw = 0;
+        if (peer->getCurrentRenderingEngine() != sw)
+            peer->setCurrentRenderingEngine (sw);
+    }
+   #endif
+}
+
+void RingEditor::parentHierarchyChanged()
+{
+    useSoftwareRenderer();
+}
 
 void RingEditor::resized()
 {

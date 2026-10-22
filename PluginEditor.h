@@ -9,10 +9,13 @@ public:
     explicit RingEditor (RingProcessor&);
     ~RingEditor() override;
     void resized() override;
+    void parentHierarchyChanged() override;
     int  getScaleIndex() const;          // 1, 2 = 75 %, 100 %  (-1 = default / free size)
     void setScaleIndex (int idx);        // 1, 2 = 75 %, 100 %  (-1 or 0 = default 67 %, the minimum size)
 
 private:
+    friend class PedalContent;           // son timer relance useSoftwareRenderer()
+    void useSoftwareRenderer();
     RingProcessor& proc;
     std::unique_ptr<PedalContent> content;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RingEditor)

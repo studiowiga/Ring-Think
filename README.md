@@ -34,5 +34,5 @@ Windows: %APPDATA%\WigaRingThink\user_presets.xml
 macOS: ~/Library/WigaRingThink/user_presets.xml
 (shared by every project).
 
-## Files (v2.2.0)
+## Files (v2.2.1)
 All the PNG files at the repo root are the pedal artwork (background, knob caps, LEDs, labels...) and are embedded in the plugin by CMakeLists.txt: upload them all.

@@ -68,11 +68,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout RingProcessor::createLayout(
     auto f = [&p] (const char* id, const char* name, float def) {
         p.push_back (std::make_unique<AudioParameterFloat> (ParameterID { id, 1 }, name, NormalisableRange<float> (0.0f, 1.0f), def));
     };
-    f ("blend", "Blend", 0.5f);
+    f ("blend", "Blend", 0.6f);          // defaults = factory "Ring Mod" sound
     f ("wave", "Wave", 0.25f);
-    f ("filter", "Filter/Rate", 1.0f);
+    f ("filter", "Filter/Rate", 0.8f);
     f ("fine", "Fine/Depth", 0.5f);
-    f ("coarse", "Coarse", 0.5f);
+    f ("coarse", "Coarse", 0.8f);
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "rm", 1 }, "Mode RM", true));
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "ub", 1 }, "Mode UB", false));
     p.push_back (std::make_unique<AudioParameterBool> (ParameterID { "lb", 1 }, "Mode LB", false));
@@ -129,9 +129,11 @@ void RingProcessor::prepareToPlay (double sampleRate, int)
     phFb[0] = phFb[1] = 0.f; phLfoPhase = 0.f;
     midiPresetDown = false; midiBypassHeld = false; prevDown = false; holdSamples = 0.0; tuning = false;
     psWin = juce::jmax (256, (int) (0.04 * sr));
-    const int size = juce::nextPowerOfTwo (psWin + 16);
+    // window up to psWin + 2 periods of the lowest tracked note (40 Hz)
+    const int size = juce::nextPowerOfTwo (psWin + 2 * (int) (sr / 40.0) + 64);
     for (auto& b : psBuf) b.assign ((size_t) size, 0.0f);
-    psMask = size - 1; psPos = 0; psPhase = 0.f;
+    psMask = size - 1; psPos = 0;
+    psPh[0] = 0.0f; psPh[1] = 0.5f; psW[0] = psW[1] = psTargetW = (float) psWin; psHold = 0;
 
     tuneBuf.assign ((size_t) tuneSize, 0.0f);
     tuneWork.assign ((size_t) tuneSize, 0.0f);
@@ -377,11 +379,27 @@ void RingProcessor::processBlock (juce::AudioBuffer<float>& buf, juce::MidiBuffe
         {
             const float lfoV = modOn ? morphWave (lfoPhase, lfoRate / fs, wave) : 0.0f;
             const float ratio = std::pow (2.0f, (baseS + dep * lfoV) / 12.0f);
-            psPhase += (1.0f - ratio) / (float) psWin; psPhase -= std::floor (psPhase);
-            float p2 = psPhase + 0.5f; p2 -= std::floor (p2);
-            d1 = 2.0f + psPhase * (float) psWin;  d2 = 2.0f + p2 * (float) psWin;
-            g1 = 0.5f - 0.5f * std::cos (twoPi * psPhase);
-            g2 = 0.5f - 0.5f * std::cos (twoPi * p2);
+            const float slip = 1.0f - ratio;
+            float d[2], gg[2];
+            for (int k = 0; k < 2; ++k)
+            {
+                psPh[k] += slip / psW[k];
+                const bool wrapped = psPh[k] >= 1.0f || psPh[k] < 0.0f;
+                if (wrapped)
+                {
+                    // this tap is silent here: take the new window, and re-lock it half a cycle
+                    // away from the other tap so both read whole periods apart (no phase cancelling)
+                    psPh[k] -= std::floor (psPh[k]);
+                    psW[k] = psTargetW;
+                    float o = psPh[1 - k] + 0.5f; o -= std::floor (o);
+                    float e = psPh[k] - o; e -= std::floor (e + 0.5f);
+                    if (std::abs (e) < 0.15f) psPh[k] = o;
+                }
+                d[k]  = 2.0f + psPh[k] * psW[k];
+                gg[k] = 0.5f - 0.5f * std::cos (twoPi * psPh[k]);
+            }
+            const float norm = 1.0f / juce::jmax (0.3f, gg[0] + gg[1]);
+            d1 = d[0]; d2 = d[1]; g1 = gg[0] * norm; g2 = gg[1] * norm;
         }
 
         for (int c = 0; c < nCh; ++c)
@@ -444,15 +462,33 @@ void RingProcessor::processBlock (juce::AudioBuffer<float>& buf, juce::MidiBuffe
         psPos = (psPos + 1) & psMask;
     }
 
-    // continuous tuning of the ring-modulator carrier to the incoming note
-    if (tuning.load() && (modes & (kRM | kUB | kLB)) != 0)
+    // pitch tracking: locks the pitch-shifter window to the played note (clean sub / octave up),
+    // and feeds the continuous tuning of the ring-modulator carrier
+    const bool ringTune = tuning.load() && (modes & (kRM | kUB | kLB)) != 0;
+    if (ps || ringTune)
     {
         tuneCounter += n;
         if (tuneCounter >= 1024)
         {
+            const int elapsed = tuneCounter;
             tuneCounter = 0;
             const float f0 = detectPitch();
-            if (f0 > 0.0f)
+            if (ps)
+            {
+                if (f0 > 0.0f)
+                {
+                    const float T = (float) sr / f0;
+                    const float m = std::ceil ((float) psWin / (2.0f * T));
+                    psTargetW = juce::jlimit ((float) psWin, (float) (psMask - 8), 2.0f * m * T);
+                    psHold = (int) (0.3 * sr);
+                }
+                else if (psHold > 0)
+                {
+                    psHold -= elapsed;
+                    if (psHold <= 0) psTargetW = (float) psWin;   // chords / silence: fixed window
+                }
+            }
+            if (ringTune && f0 > 0.0f)
             {
                 tunedHz = f0; tunedActive = true;
                 tunedCoarse = coarse; tunedFine = fine;

@@ -8,7 +8,7 @@ enum class MidiTarget { None = 0, PresetFsw = 1, Bypass = 2 };
 
 struct PresetData
 {
-    float blend = 0.5f, wave = 0.25f, filter = 1.0f, fine = 0.5f, coarse = 0.5f;
+    float blend = 0.6f, wave = 0.25f, filter = 0.8f, fine = 0.5f, coarse = 0.8f;   // = factory "Ring Mod"
     int modes = kRM;
     float tunedHz = 0.0f;
 };
@@ -98,7 +98,11 @@ private:
 
     Chan chans[2];
     double sr = 44100.0;
-    float carrierPhase = 0.f, lfoPhase = 0.f, psPhase = 0.f;
+    float carrierPhase = 0.f, lfoPhase = 0.f;
+    // pitch shifter: two crossfaded read taps, window locked to a multiple of the played note's period
+    float psPh[2] = { 0.f, 0.5f }, psW[2] = { 1920.f, 1920.f };
+    float psTargetW = 1920.f;
+    int psHold = 0;
     std::vector<float> psBuf[2];
     int psMask = 0, psPos = 0, psWin = 1024;
 

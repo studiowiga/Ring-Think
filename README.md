@@ -34,5 +34,9 @@ Windows: %APPDATA%\WigaRingThink\user_presets.xml
 macOS: ~/Library/WigaRingThink/user_presets.xml
 (shared by every project).
 
-## Files (v2.2.1)
+## v2.2.2
+- The plugin now opens on the "Ring Mod" sound (knob defaults were giving a ~15 Hz carrier, heard as a tremolo).
+- Pitch shift (Sub Octave, Octave Up, Detune...): the grain window now locks onto the period of the played note, so the shifted note is in tune and no longer beats or wobbles. Chords and silence fall back to the previous fixed window.
+
+## Files (v2.2.2)
 All the PNG files at the repo root are the pedal artwork (background, knob caps, LEDs, labels...) and are embedded in the plugin by CMakeLists.txt: upload them all.

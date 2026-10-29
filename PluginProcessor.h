@@ -62,14 +62,32 @@ public:
     bool  isTuning() const { return tuning.load(); }
     bool  isTunedActive() const { return tunedActive.load(); }
     float getTunedHz() const { return tunedHz.load(); }
-    void startMidiLearn (MidiTarget t) { learnTarget = (int) t; }
-    void cancelMidiLearn() { learnTarget = 0; }
+    void startMidiLearn (MidiTarget t) { learnTarget = t == MidiTarget::PresetFsw ? lPresetFsw : (t == MidiTarget::Bypass ? lBypass : -1); }
+    void cancelMidiLearn() { learnTarget = -1; }
     bool isBypassLatching() const { return bypassLatching.load(); }
     void setBypassLatching (bool b) { bypassLatching = b; }
     std::atomic<int> uiScaleIdx { -1 };       // -1 = default size (67 %), 0..2 = 50 / 75 / 100 %
-    MidiTarget getLearnTarget() const { return (MidiTarget) learnTarget.load(); }
+    MidiTarget getLearnTarget() const
+    {
+        const int lt = learnTarget.load();
+        return lt == lPresetFsw ? MidiTarget::PresetFsw : (lt == lBypass ? MidiTarget::Bypass : MidiTarget::None);
+    }
     void clearMidi (MidiTarget t);
     juce::String getMidiDescription (MidiTarget t) const;
+
+    // v2.4 MIDI Learn : toutes les commandes de la facade (clic droit sur la commande)
+    // les 5 potards et les 5 boutons de mode sont aussi l'ordre de la file anti-gel (pendingValue / pendingSet)
+    enum LearnType { learnContinuous, learnToggle, learnSelector, learnFootswitch };
+    struct LearnDef { const char* id; const char* name; int defaultCC; int type; int positions; };
+    enum { lPresetKnob = 10, lPresetFsw = 11, lBypass = 12 };
+    static constexpr int numLearn = 13;
+    static const LearnDef& learnDef (int i);
+    std::atomic<int> ccMap[numLearn];            // numero de CC de chaque commande, -1 = non assigne
+    std::atomic<int> learnTarget { -1 };         // commande en attente d'un CC (-1 = pas de learn)
+    std::atomic<int> lastLearned { -1 };         // derniere commande apprise (lue et remise a -1 par la fenetre)
+    void resetMidiMap();
+    void clearLearn (int i);
+    juce::String learnAssignText (int i) const;  // "CC n", "Note n" ou "none"
 
     void setParamValue (const juce::String& id, float value);
 
@@ -124,7 +142,19 @@ private:
     float phS[2][6] = {};
     float phFb[2] = { 0.f, 0.f };
     float phLfoPhase = 0.f;
-    std::atomic<int> learnTarget { 0 }, ccPreset { -1 }, notePreset { -1 }, ccBypass { -1 }, noteBypass { -1 };
+    // footswitches : CC dans ccMap[lPresetFsw] / ccMap[lBypass], ou note MIDI
+    std::atomic<int> notePreset { -1 }, noteBypass { -1 };
+
+    // anti-gel : valeurs envoyees par le MIDI (thread audio), transmises a l'hote par le timer
+    static constexpr int numQueued = 10;
+    std::atomic<float> pendingValue[numQueued];
+    std::atomic<bool>  pendingSet[numQueued];
+    std::atomic<float>* queuedPtr[numQueued] {};
+    float eff (int q) const   // valeur en file (MIDI pas encore transmis) sinon valeur du parametre
+    {
+        return pendingSet[q].load (std::memory_order_acquire) ? pendingValue[q].load (std::memory_order_relaxed)
+                                                               : queuedPtr[q]->load (std::memory_order_relaxed);
+    }
 
     std::atomic<bool> pendingNext { false }, pendingToggle { false };
     std::atomic<int> pendingPreset { -1 }, pendingProgram { -1 };

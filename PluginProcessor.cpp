@@ -61,6 +61,53 @@ PresetData RingProcessor::factoryPreset (int i)
     return t[juce::jlimit (0, 9, i)];
 }
 
+const RingProcessor::LearnDef& RingProcessor::learnDef (int i)
+{
+    // aucun CC par defaut (les footswitches n'avaient pas de numero avant le learn : inchanges)
+    static const LearnDef defs[numLearn] =
+    {
+        { "blend",     "Blend",                 -1, learnContinuous, 0 },
+        { "wave",      "Wave",                  -1, learnContinuous, 0 },
+        { "filter",    "Filter/Rate",           -1, learnContinuous, 0 },
+        { "fine",      "Fine/Depth",            -1, learnContinuous, 0 },
+        { "coarse",    "Coarse",                -1, learnContinuous, 0 },
+        { "rm",        "RM button",             -1, learnToggle,     2 },   // >= 64 : on
+        { "ub",        "UB button",             -1, learnToggle,     2 },
+        { "lb",        "LB button",             -1, learnToggle,     2 },
+        { "ps",        "Pitch-Shift switch",    -1, learnToggle,     2 },
+        { "ph",        "Phaser switch",         -1, learnToggle,     2 },
+        { "preset",    "Preset knob",           -1, learnSelector,  10 },   // 0 = live knobs, 1-9 = presets
+        { "presetfsw", "Preset/Tune footswitch",-1, learnFootswitch, 0 },
+        { "active",    "Bypass footswitch",     -1, learnFootswitch, 0 },
+    };
+    return defs[juce::jlimit (0, numLearn - 1, i)];
+}
+
+void RingProcessor::resetMidiMap()
+{
+    learnTarget = -1;
+    for (int i = 0; i < numLearn; ++i) ccMap[i].store (learnDef (i).defaultCC);
+    notePreset = -1; noteBypass = -1; midiPresetDown = false;
+}
+
+void RingProcessor::clearLearn (int i)
+{
+    if (i < 0 || i >= numLearn) return;
+    ccMap[i].store (-1);
+    if (i == lPresetFsw) { notePreset = -1; midiPresetDown = false; }
+    if (i == lBypass)    noteBypass = -1;
+    if (learnTarget.load() == i) learnTarget = -1;
+}
+
+juce::String RingProcessor::learnAssignText (int i) const
+{
+    const int cc = ccMap[juce::jlimit (0, numLearn - 1, i)].load();
+    if (cc >= 0) return "CC " + juce::String (cc);
+    const int note = i == lPresetFsw ? notePreset.load() : (i == lBypass ? noteBypass.load() : -1);
+    if (note >= 0) return "Note " + juce::String (note);
+    return "none";
+}
+
 juce::AudioProcessorValueTreeState::ParameterLayout RingProcessor::createLayout()
 {
     using namespace juce;
@@ -97,6 +144,12 @@ RingProcessor::RingProcessor()
     pPS = apvts.getRawParameterValue ("ps");         pPH = apvts.getRawParameterValue ("ph");
     pActive = apvts.getRawParameterValue ("active");
     pFsw = apvts.getRawParameterValue ("presetfsw"); pPreset = apvts.getRawParameterValue ("preset");
+    for (int i = 0; i < numQueued; ++i)
+    {
+        queuedPtr[i] = apvts.getRawParameterValue (learnDef (i).id);
+        pendingValue[i].store (0.0f); pendingSet[i].store (false);
+    }
+    resetMidiMap();
 
     programLockStart = juce::Time::getMillisecondCounter();
     for (int i = 0; i < 9; ++i) userPresets[i] = factoryPreset (i);
@@ -162,16 +215,36 @@ bool RingProcessor::handleMidi (juce::MidiBuffer& midi)
     for (const auto meta : midi)
     {
         const auto m = meta.getMessage();
-        const auto learn = (MidiTarget) learnTarget.load();
-        if (learn != MidiTarget::None && ((m.isController() && m.getControllerNumber() < 120) || m.isNoteOn()))
+
+        // MIDI Learn : le premier CC recu (ou une note pour les footswitches) est affecte a la commande visee
+        const int lt = learnTarget.load();
+        if (lt >= 0 && lt < numLearn)
         {
-            const int cc   = m.isController() ? m.getControllerNumber() : -1;
-            const int note = m.isNoteOn() ? m.getNoteNumber() : -1;
-            if (learn == MidiTarget::PresetFsw) { ccPreset = cc; notePreset = note; }
-            else                                { ccBypass = cc; noteBypass = note; }
-            learnTarget = 0;
-            continue;
+            const bool isFs = lt == lPresetFsw || lt == lBypass;
+            if (m.isController() && m.getControllerNumber() < 120)
+            {
+                const int cc = m.getControllerNumber();
+                for (int j = 0; j < numLearn; ++j)
+                    if (j != lt && ccMap[j].load() == cc) ccMap[j].store (-1);   // numero deja pris : l'autre commande est desassignee
+                ccMap[lt].store (cc);
+                if (lt == lPresetFsw) notePreset = -1;
+                if (lt == lBypass)    { noteBypass = -1; midiBypassHeld = m.getControllerValue() >= 64; }
+                lastLearned.store (lt);
+                learnTarget.store (-1);
+                continue;
+            }
+            if (isFs && m.isNoteOn())
+            {
+                const int note = m.getNoteNumber();
+                if (lt == lPresetFsw) { notePreset = note; if (noteBypass.load() == note) noteBypass = -1; }
+                else                  { noteBypass = note; if (notePreset.load() == note) notePreset = -1; }
+                ccMap[lt].store (-1);
+                lastLearned.store (lt);
+                learnTarget.store (-1);
+                continue;
+            }
         }
+
         if (m.isProgramChange())
         {
             pendingPreset = juce::jlimit (0, 9, m.getProgramChangeNumber());   // PC 0 = live knobs, 1-9 = presets
@@ -179,13 +252,32 @@ bool RingProcessor::handleMidi (juce::MidiBuffer& midi)
         else if (m.isController() && m.getControllerNumber() < 120)
         {
             const int c = m.getControllerNumber();
-            const bool on = m.getControllerValue() >= 64;
-            if (c == ccPreset.load()) { midiPresetDown = on; if (on) pressed = true; }
-            if (c == ccBypass.load())
+            const int v = m.getControllerValue();
+            const bool on = v >= 64;
+            for (int j = 0; j < numLearn; ++j)
             {
-                const bool edge = bypassLatching.load() ? (on != midiBypassHeld.load()) : (on && ! midiBypassHeld.load());
-                if (edge) { pendingToggle = true; }
-                midiBypassHeld = on;
+                if (ccMap[j].load (std::memory_order_relaxed) != c) continue;
+                if (j < 5)                                       // potards : 0-127 -> 0-1 (lissage du moteur)
+                {
+                    pendingValue[j].store ((float) v / 127.0f, std::memory_order_relaxed);
+                    pendingSet[j].store (true, std::memory_order_release);
+                }
+                else if (j < 10)                                 // boutons de mode : >= 64 = on
+                {
+                    pendingValue[j].store (on ? 1.0f : 0.0f, std::memory_order_relaxed);
+                    pendingSet[j].store (true, std::memory_order_release);
+                }
+                else if (j == lPresetKnob)                       // 10 positions : live knobs, presets 1 a 9
+                {
+                    pendingPreset = juce::jmin (9, v * 10 / 128);
+                }
+                else if (j == lPresetFsw) { midiPresetDown = on; if (on) pressed = true; }
+                else if (j == lBypass)
+                {
+                    const bool edge = bypassLatching.load() ? (on != midiBypassHeld.load()) : (on && ! midiBypassHeld.load());
+                    if (edge) { pendingToggle = true; }
+                    midiBypassHeld = on;
+                }
             }
         }
         else if (m.isNoteOn())
@@ -203,18 +295,13 @@ bool RingProcessor::handleMidi (juce::MidiBuffer& midi)
 
 void RingProcessor::clearMidi (MidiTarget t)
 {
-    if (t == MidiTarget::PresetFsw) { ccPreset = -1; notePreset = -1; midiPresetDown = false; }
-    else                            { ccBypass = -1; noteBypass = -1; }
-    if (getLearnTarget() == t) learnTarget = 0;
+    clearLearn (t == MidiTarget::PresetFsw ? lPresetFsw : lBypass);
 }
 
 juce::String RingProcessor::getMidiDescription (MidiTarget t) const
 {
-    const int cc   = t == MidiTarget::PresetFsw ? ccPreset.load()   : ccBypass.load();
-    const int note = t == MidiTarget::PresetFsw ? notePreset.load() : noteBypass.load();
-    if (cc >= 0)   return "CC " + juce::String (cc);
-    if (note >= 0) return "Note " + juce::String (note);
-    return {};
+    const auto d = learnAssignText (t == MidiTarget::PresetFsw ? lPresetFsw : lBypass);
+    return d == "none" ? juce::String() : d;
 }
 
 // ------------------------------------------------------------------ pitch detection (YIN)
@@ -302,8 +389,9 @@ void RingProcessor::processBlock (juce::AudioBuffer<float>& buf, juce::MidiBuffe
     activeSm.setTargetValue (active ? 1.0f : 0.0f);
     if (! active && ! activeSm.isSmoothing()) return;
 
-    const float blend = pBlend->load(), wave = pWave->load(), filter = pFilter->load();
-    const float fine = pFine->load(), coarse = pCoarse->load();
+    // potards : valeur MIDI encore en file prise tout de suite (sans attendre le timer), puis lissage habituel
+    const float blend = eff (0), wave = eff (1), filter = eff (2);
+    const float fine = eff (3), coarse = eff (4);
     const int modes = getModes();
     const bool rm = (modes & kRM) != 0, ub = (modes & kUB) != 0, lb = (modes & kLB) != 0, ps = (modes & kPS) != 0;
     const bool ph = (modes & kPH) != 0;
@@ -647,6 +735,11 @@ void RingProcessor::loadFactorySound (int index)
 
 void RingProcessor::timerCallback()
 {
+    // anti-gel : valeurs MIDI des potards et boutons transmises a l'hote ici (thread de messages)
+    for (int i = 0; i < numQueued; ++i)
+        if (pendingSet[i].exchange (false, std::memory_order_acquire))
+            if (auto* prm = apvts.getParameter (learnDef (i).id))
+                prm->setValueNotifyingHost (prm->convertTo0to1 (pendingValue[i].load (std::memory_order_relaxed)));
     if (pendingToggle.exchange (false))
         setParamValue ("active", pActive->load() > 0.5f ? 0.0f : 1.0f);
     if (pendingNext.exchange (false))
@@ -666,9 +759,11 @@ juce::AudioProcessorEditor* RingProcessor::createEditor() { return new RingEdito
 
 void RingProcessor::getStateInformation (juce::MemoryBlock& dest)
 {
-    apvts.state.setProperty ("ccPreset", ccPreset.load(), nullptr);
+    apvts.state.setProperty ("ccPreset", ccMap[lPresetFsw].load(), nullptr);      // anciennes cles (projets < 2.4)
     apvts.state.setProperty ("notePreset", notePreset.load(), nullptr);
-    apvts.state.setProperty ("ccBypass", ccBypass.load(), nullptr);
+    apvts.state.setProperty ("ccBypass", ccMap[lBypass].load(), nullptr);
+    for (int i = 0; i < numLearn; ++i)
+        apvts.state.setProperty (juce::String ("cc_") + learnDef (i).id, ccMap[i].load(), nullptr);
     apvts.state.setProperty ("noteBypass", noteBypass.load(), nullptr);
     apvts.state.setProperty ("tunedHz", (double) tunedHz.load(), nullptr);
     apvts.state.setProperty ("tunedActive", tunedActive.load(), nullptr);
@@ -683,9 +778,16 @@ void RingProcessor::setStateInformation (const void* data, int size)
         if (xml->hasTagName (apvts.state.getType()))
         {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
-            ccPreset = (int) apvts.state.getProperty ("ccPreset", -1);
+            // assignations MIDI Learn (-1 = non assigne ; projet < 2.4 : seulement ccPreset / ccBypass)
+            learnTarget = -1;
+            for (int i = 0; i < numLearn; ++i)
+            {
+                const juce::var legacy = i == lPresetFsw ? apvts.state.getProperty ("ccPreset", -1)
+                                       : i == lBypass    ? apvts.state.getProperty ("ccBypass", -1)
+                                                         : juce::var (learnDef (i).defaultCC);
+                ccMap[i].store (juce::jlimit (-1, 127, (int) apvts.state.getProperty (juce::String ("cc_") + learnDef (i).id, legacy)));
+            }
             notePreset = (int) apvts.state.getProperty ("notePreset", -1);
-            ccBypass = (int) apvts.state.getProperty ("ccBypass", -1);
             noteBypass = (int) apvts.state.getProperty ("noteBypass", -1);
             tunedHz = (float) (double) apvts.state.getProperty ("tunedHz", 0.0);
             tunedActive = (bool) apvts.state.getProperty ("tunedActive", false);

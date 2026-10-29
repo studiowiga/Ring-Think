@@ -91,7 +91,10 @@ namespace
 
 static void addSizeSubmenu (juce::PopupMenu&, juce::Component&);
 static void handleSizeChoice (int, juce::Component*);
-static void showSizeMenuFor (juce::Component&);
+static void showSizeMenuFor (juce::Component&, int learnIdx = -1);
+static void addLearnSection (juce::PopupMenu&, juce::Component&, int learnIdx);
+static void addMidiSubmenu (juce::PopupMenu&, juce::Component&);
+static bool handleLearnChoice (int, juce::Component*);
 
 // knob that lets a right click open the size menu instead of dragging
 struct PedalSlider : juce::Slider
@@ -99,11 +102,12 @@ struct PedalSlider : juce::Slider
     void mouseDown (const juce::MouseEvent& e) override
     {
         passThrough = e.mods.isPopupMenu();
-        if (passThrough) showSizeMenuFor (*this); else juce::Slider::mouseDown (e);
+        if (passThrough) showSizeMenuFor (*this, learnIdx); else juce::Slider::mouseDown (e);
     }
     void mouseDrag (const juce::MouseEvent& e) override { if (! passThrough) juce::Slider::mouseDrag (e); }
     void mouseUp (const juce::MouseEvent& e) override   { if (! passThrough) juce::Slider::mouseUp (e); passThrough = false; }
     bool passThrough = false;
+    int learnIdx = -1;                 // commande MIDI Learn de ce potard (clic droit)
 };
 
 // ------------------------------------------------------------------ knob look
@@ -218,6 +222,7 @@ private:
     {
         const int slot = proc.getCurrentSlot();
         juce::PopupMenu m;
+        addLearnSection (m, *this, RingProcessor::lPresetKnob);
         m.addItem (1, slot > 0 ? "Save current sound to preset " + juce::String (slot) : "Save (turn the knob to a preset first)", slot > 0);
         m.addItem (2, slot > 0 ? "Restore factory preset " + juce::String (slot) : "Restore factory preset", slot > 0);
         m.addItem (3, "Restore ALL factory presets");
@@ -236,7 +241,7 @@ private:
             else if (r == 4) p.loadPreset (0);
             else if (r == 5) p.cycleModes();
             else if (r == 6) p.loadFactorySound (9);
-            else handleSizeChoice (r, sp.getComponent());
+            else if (! handleLearnChoice (r, sp.getComponent())) handleSizeChoice (r, sp.getComponent());
         });
     }
 
@@ -251,16 +256,16 @@ private:
 class ToggleZone : public juce::Component
 {
 public:
-    ToggleZone (RingProcessor& p, const char* paramId) : proc (p), id (paramId) {}
+    ToggleZone (RingProcessor& p, const char* paramId, int learn) : proc (p), id (paramId), learnIdx (learn) {}
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.mods.isPopupMenu()) { showSizeMenuFor (*this); return; }
+        if (e.mods.isPopupMenu()) { showSizeMenuFor (*this, learnIdx); return; }
         const float cur = proc.apvts.getRawParameterValue (id)->load();
         setParamGesture (proc.apvts, id, cur > 0.5f ? 0.0f : 1.0f, true, true);
     }
     void paint (juce::Graphics&) override {}
 private:
-    RingProcessor& proc; const char* id;
+    RingProcessor& proc; const char* id; int learnIdx;
 };
 
 class LadderZone : public juce::Component
@@ -269,7 +274,7 @@ public:
     explicit LadderZone (RingProcessor& p) : proc (p) {}
     void mouseDown (const juce::MouseEvent& e) override
     {
-        if (e.mods.isPopupMenu()) { showSizeMenuFor (*this); return; }
+        if (e.mods.isPopupMenu()) { showSizeMenuFor (*this, RingProcessor::lPresetKnob); return; }
         const int y = e.y + getY();
         int best = 0, bd = 100000;
         for (int i = 0; i < 9; ++i) if (std::abs (y - kLadY[i]) < bd) { bd = std::abs (y - kLadY[i]); best = i; }
@@ -290,7 +295,7 @@ public:
         if (down && isPreset) setParamGesture (proc.apvts, "presetfsw", 0.0f, false, true);   // never leave the switch stuck
     }
 
-    bool learnRingShown() const { return proc.getLearnTarget() == target() && (juce::Time::getMillisecondCounter() / 300) % 2 == 0; }
+    bool learnRingShown() const { return proc.learnTarget.load() == learnIdx() && (juce::Time::getMillisecondCounter() / 300) % 2 == 0; }
 
     void paint (juce::Graphics& g) override
     {
@@ -333,16 +338,14 @@ public:
 
 private:
     MidiTarget target() const { return isPreset ? MidiTarget::PresetFsw : MidiTarget::Bypass; }
+    int learnIdx() const { return isPreset ? RingProcessor::lPresetFsw : RingProcessor::lBypass; }
 
     void showMenu()
     {
         const auto desc = proc.getMidiDescription (target());
         juce::PopupMenu m;
-        m.addItem (1, "MIDI learn  (then move a pedal / press a note)");
-        m.addItem (2, "Clear MIDI assignment", desc.isNotEmpty());
-        m.addSeparator();
+        addLearnSection (m, *this, learnIdx());     // MIDI Learn (CC ou note) / Clear MIDI / Cancel
         m.addItem (3, desc.isNotEmpty() ? "Assigned to: " + desc : "No MIDI assignment", false);
-        if (proc.getLearnTarget() == target()) m.addItem (5, "Cancel MIDI learn");
         if (! isPreset) m.addItem (6, "Latching MIDI switch (toggle on press AND release)", true, proc.isBypassLatching());
         m.addItem (7, "MIDI Program Change 1-9 also selects presets (0 = live knobs)", false);
         addSizeSubmenu (m, *this);
@@ -351,9 +354,7 @@ private:
         juce::Component::SafePointer<Footswitch> sp (this);
         m.showMenuAsync (juce::PopupMenu::Options(), [sp] (int r) {
             if (sp == nullptr) return;
-            if (r == 1) sp->proc.startMidiLearn (sp->target());
-            if (r == 2) sp->proc.clearMidi (sp->target());
-            if (r == 5) sp->proc.cancelMidiLearn();
+            if (handleLearnChoice (r, sp.getComponent())) return;
             if (r == 6) sp->proc.setBypassLatching (! sp->proc.isBypassLatching());
             handleSizeChoice (r, sp.getComponent());
         });
@@ -369,19 +370,20 @@ class PedalContent : public juce::Component, private juce::Timer
 {
 public:
     explicit PedalContent (RingProcessor& p)
-        : proc (p), bigKnob (p, art), rmZone (p, "rm"), ubZone (p, "ub"), lbZone (p, "lb"), psZone (p, "ps"), phZone (p, "ph"),
+        : proc (p), bigKnob (p, art), rmZone (p, "rm", 5), ubZone (p, "ub", 6), lbZone (p, "lb", 7), psZone (p, "ps", 8), phZone (p, "ph", 9),
           ladder (p), presetSw (p, art, true), bypassSw (p, art, false)
     {
         setSize (kW, kH);
         setOpaque (true);
         for (auto& l : lvl) l = 0.0f;
 
-        juce::Slider* ks[5] = { &blend, &wave, &filter, &fine, &coarse };
+        PedalSlider* ks[5] = { &blend, &wave, &filter, &fine, &coarse };
         const char* ids[5] = { "blend", "wave", "filter", "fine", "coarse" };
         const char* labels[5] = { "BLEND", "WAVE", "FILTER/RATE", "FINE/DEPTH", "COARSE" };
         for (int i = 0; i < 5; ++i)
         {
             auto& s = *ks[i];
+            s.learnIdx = i;                     // meme ordre que RingProcessor::learnDef
             s.setSliderStyle (juce::Slider::RotaryVerticalDrag);
             s.setTextBoxStyle (juce::Slider::NoTextBox, false, 0, 0);
             s.setRotaryParameters (juce::degreesToRadians (225.0f), juce::degreesToRadians (495.0f), true);
@@ -501,7 +503,10 @@ private:
         const auto m1 = proc.getMidiDescription (MidiTarget::PresetFsw), m2 = proc.getMidiDescription (MidiTarget::Bypass);
         if (m1.isNotEmpty()) status << "MIDI PRESET/TUNE: " << m1 << "   ";
         if (m2.isNotEmpty()) status << "MIDI BYPASS: " << m2;
-        if (proc.getLearnTarget() != MidiTarget::None) status = "MIDI LEARN: move a control / press a note...";
+        const int lt = proc.learnTarget.load();
+        if (lt >= 0)
+            status = juce::String ("MIDI LEARN: move a control for ") + RingProcessor::learnDef (lt).name;
+        else if (learnMsg.isNotEmpty() && now < learnMsgUntil) status = learnMsg;           // "<Commande> = CC n" 2 s
         else if (knobText.isNotEmpty() && (now - knobTextMs) < 1500) status = knobText;   // live knob percentage
         return status;
     }
@@ -606,6 +611,14 @@ private:
         if ((modes ^ drawnModes) & kPH) zone ({ (float) kPhTxtX, (float) kPhTxtY, (float) art.phWhite.getWidth(), (float) art.phWhite.getHeight() });
         drawnModes = modes;
 
+        // MIDI Learn : confirmation 2 s dans la ligne d'etat
+        const int learned = proc.lastLearned.exchange (-1);
+        if (learned >= 0)
+        {
+            learnMsg = juce::String (RingProcessor::learnDef (learned).name) + " = " + proc.learnAssignText (learned);
+            learnMsgUntil = juce::Time::getMillisecondCounter() + 2000;
+        }
+
         // ligne d'état
         const juce::String st = statusText (juce::Time::getMillisecondCounter());
         if (st != drawnStatus) { drawnStatus = st; zone (kStatusRect); }
@@ -630,6 +643,8 @@ private:
     std::vector<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>> attachments;
     juce::String knobText;                // e.g. "BLEND  63 %" shown in the status line while a knob moves
     juce::uint32 knobTextMs = 0;
+    juce::String learnMsg;                // "Blend = CC 11" (2 s apres un MIDI Learn)
+    juce::uint32 learnMsgUntil = 0;
     float lvl[15];
 
     // dernier état réellement dessiné : on ne redessine une zone que si elle a changé
@@ -761,15 +776,75 @@ static void handleSizeChoice (int r, juce::Component* c)
     if (auto* ed = c->findParentComponentOfClass<RingEditor>()) ed->setScaleIndex (r == 104 ? -1 : r - 101);
 }
 
-static void showSizeMenuFor (juce::Component& c)
+// ------------------------------------------------------------------ MIDI Learn (clic droit)
+static RingProcessor* procFor (juce::Component* c)
+{
+    if (c == nullptr) return nullptr;
+    if (auto* ed = dynamic_cast<RingEditor*> (c)) return &ed->getProc();
+    if (auto* ed = c->findParentComponentOfClass<RingEditor>()) return &ed->getProc();
+    return nullptr;
+}
+
+// clic droit sur une commande : section MIDI Learn de cette commande en tete du menu
+static void addLearnSection (juce::PopupMenu& m, juce::Component& c, int i)
+{
+    auto* p = procFor (&c);
+    if (p == nullptr || i < 0 || i >= RingProcessor::numLearn) return;
+    const juce::String name = RingProcessor::learnDef (i).name;
+    const int lt = p->learnTarget.load();
+    m.addSectionHeader (name);
+    m.addItem (1000 + i, "MIDI Learn: " + name + " (" + p->learnAssignText (i) + ")", true, lt == i);
+    m.addItem (1100 + i, "Clear MIDI: " + name, p->learnAssignText (i) != "none");
+    if (lt >= 0) m.addItem (1200, "Cancel MIDI learn");
+    m.addSeparator();
+}
+
+// clic droit hors commande : liste de toutes les commandes
+static void addMidiSubmenu (juce::PopupMenu& m, juce::Component& c)
+{
+    auto* p = procFor (&c);
+    if (p == nullptr) return;
+    juce::PopupMenu midi;
+    for (int i = 0; i < RingProcessor::numLearn; ++i)
+        midi.addItem (1000 + i, juce::String ("Learn: ") + RingProcessor::learnDef (i).name + " (" + p->learnAssignText (i) + ")",
+                      true, p->learnTarget.load() == i);
+    midi.addSeparator();
+    if (p->learnTarget.load() >= 0) midi.addItem (1200, "Cancel MIDI learn");
+    midi.addItem (1201, "Reset MIDI to defaults (all unassigned)");
+    midi.addSeparator();
+    midi.addItem (1202, "Footswitches also learn a MIDI note", false);
+    midi.addItem (1203, "Program Change 1-9 = presets (0 = live knobs)", false);
+    m.addSeparator();
+    m.addSubMenu ("MIDI", midi);
+}
+
+static bool handleLearnChoice (int r, juce::Component* c)
+{
+    if (r < 1000 || r > 1299) return false;
+    auto* p = procFor (c);
+    if (p == nullptr) return true;
+    if (r < 1000 + RingProcessor::numLearn)                  // re-cliquer sur la commande en attente annule le learn
+        p->learnTarget.store (p->learnTarget.load() == r - 1000 ? -1 : r - 1000);
+    else if (r >= 1100 && r < 1100 + RingProcessor::numLearn) p->clearLearn (r - 1100);
+    else if (r == 1200) p->learnTarget.store (-1);
+    else if (r == 1201) p->resetMidiMap();
+    return true;
+}
+
+static void showSizeMenuFor (juce::Component& c, int learnIdx)
 {
     const auto* ed = c.findParentComponentOfClass<RingEditor>();
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     juce::PopupMenu m;
+    addLearnSection (m, c, learnIdx);
     m.addSectionHeader ("Plugin size");
     m.addItem (104, "60 % (default)", true, isDefaultSize (ed));
     m.addItem (102, "75 %", true, cur == 1);
     m.addItem (103, "100 %", true, cur == 2);
+    if (learnIdx < 0) addMidiSubmenu (m, c);
     juce::Component::SafePointer<juce::Component> sp (&c);
-    m.showMenuAsync (juce::PopupMenu::Options(), [sp] (int r) { handleSizeChoice (r, sp.getComponent()); });
+    m.showMenuAsync (juce::PopupMenu::Options(), [sp] (int r)
+    {
+        if (! handleLearnChoice (r, sp.getComponent())) handleSizeChoice (r, sp.getComponent());
+    });
 }

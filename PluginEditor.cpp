@@ -748,7 +748,7 @@ static void addSizeSubmenu (juce::PopupMenu& m, juce::Component& c)
     const auto* ed = c.findParentComponentOfClass<RingEditor>();
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     juce::PopupMenu sub;
-    sub.addItem (104, "67 % (default)", true, isDefaultSize (ed));
+    sub.addItem (104, "60 % (default)", true, isDefaultSize (ed));
     sub.addItem (102, "75 %", true, cur == 1);
     sub.addItem (103, "100 %", true, cur == 2);
     m.addSeparator();
@@ -767,7 +767,7 @@ static void showSizeMenuFor (juce::Component& c)
     const int cur = ed != nullptr ? ed->getScaleIndex() : -1;
     juce::PopupMenu m;
     m.addSectionHeader ("Plugin size");
-    m.addItem (104, "67 % (default)", true, isDefaultSize (ed));
+    m.addItem (104, "60 % (default)", true, isDefaultSize (ed));
     m.addItem (102, "75 %", true, cur == 1);
     m.addItem (103, "100 %", true, cur == 2);
     juce::Component::SafePointer<juce::Component> sp (&c);

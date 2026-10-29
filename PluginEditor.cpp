@@ -373,6 +373,7 @@ public:
           ladder (p), presetSw (p, art, true), bypassSw (p, art, false)
     {
         setSize (kW, kH);
+        setOpaque (true);
         for (auto& l : lvl) l = 0.0f;
 
         juce::Slider* ks[5] = { &blend, &wave, &filter, &fine, &coarse };
@@ -422,8 +423,22 @@ public:
 
     void paint (juce::Graphics& g) override
     {
+        // anti-gel v2 : aucun calcul lourd ici, on dessine le fond déjà mis à l'échelle par le timer
+        lastPaintMs = juce::Time::getMillisecondCounter();
+        repaintAskedMs = 0;
+        g.fillAll (juce::Colours::black);
+        if (bgCache.isValid())
+        {
+            g.setImageResamplingQuality (juce::Graphics::mediumResamplingQuality);
+            g.drawImageTransformed (bgCache, juce::AffineTransform::scale ((float) kW / (float) bgCache.getWidth(),
+                                                                           (float) kH / (float) bgCache.getHeight()));
+        }
+        else
+        {
+            g.setImageResamplingQuality (juce::Graphics::mediumResamplingQuality);
+            g.drawImage (art.bg, getLocalBounds().toFloat());
+        }
         g.setImageResamplingQuality (juce::Graphics::highResamplingQuality);
-        g.drawImage (art.bg, getLocalBounds().toFloat());
 
         const auto now = juce::Time::getMillisecondCounter();
         const int modes = proc.getModes();
@@ -474,6 +489,8 @@ public:
         }
     }
 
+    void editorResized() { resizeSettle = 4; }   // le cache du fond sera refait quand la taille sera stable
+
 private:
     static inline const juce::Rectangle<float> kStatusRect { 330.0f, 806.0f, 520.0f, 24.0f };
 
@@ -515,16 +532,56 @@ private:
             lvl[i] += (target[i] ? 1.0f - lvl[i] : -lvl[i]) * (target[i] ? 0.70f : 0.42f);
     }
 
+    // repaint d'une zone avec suivi pour le chien de garde
+    void askRepaint (juce::Rectangle<int> r)
+    {
+        repaint (r);
+        if (repaintAskedMs == 0) repaintAskedMs = juce::Time::getMillisecondCounter();
+    }
+
+    // fond mis à l'échelle exacte de l'écran (taille de la fenêtre x échelle Windows / Retina)
+    void updateBackgroundCache (RingEditor& ed, juce::uint32 now)
+    {
+        if (now - lastScaleCheck >= 250)
+        {
+            lastScaleCheck = now;
+            const float sc = juce::Component::getApproximateScaleFactorForComponent (&ed);
+            if (std::abs (sc - displayScale) > 0.001f) { displayScale = sc; resizeSettle = juce::jmax (resizeSettle, 1); }
+        }
+        if (resizeSettle > 0 && --resizeSettle == 0)
+        {
+            const float px = (float) ed.getWidth() / (float) kW * displayScale;
+            const int tw = juce::jlimit (64, kW * 3, (int) std::lround (kW * px));
+            const int th = juce::jlimit (48, kH * 3, (int) std::lround (kH * px));
+            if (! bgCache.isValid() || bgCache.getWidth() != tw || bgCache.getHeight() != th)
+            {
+                bgCache = (tw == kW && th == kH) ? art.bg : art.bg.rescaled (tw, th, juce::Graphics::highResamplingQuality);
+                askRepaint (getLocalBounds());
+            }
+        }
+    }
+
     void timerCallback() override
     {
-        // au cas où la fenêtre a été recréée par l'hôte (changement d'écran, d'échelle…)
-        if (auto* ed = findParentComponentOfClass<RingEditor>()) ed->useSoftwareRenderer();
+        const auto nowMs = juce::Time::getMillisecondCounter();
+        if (auto* ed = findParentComponentOfClass<RingEditor>())
+        {
+            ed->checkRenderer();                 // fenêtre recréée par l'hôte (écran, échelle...) ?
+            updateBackgroundCache (*ed, nowMs);
+            // chien de garde : une zone demandée n'a pas été dessinée depuis 1,5 s -> on relance le rendu
+            if (repaintAskedMs != 0 && nowMs - repaintAskedMs > 1500 && isShowing())
+            {
+                repaintAskedMs = 0;
+                ed->resetRenderer();
+                repaint();
+            }
+        }
 
         updateLevels();
 
         // on ne redessine une zone que si ce qu'elle affiche a vraiment changé (zéro travail au repos)
         auto changed = [] (float& drawn, float now) { if (std::abs (drawn - now) < 0.002f) return false; drawn = now; return true; };
-        auto zone = [this] (juce::Rectangle<float> r) { repaint (r.toNearestInt().expanded (2)); };
+        auto zone = [this] (juce::Rectangle<float> r) { askRepaint (r.toNearestInt().expanded (2)); };
         auto ledZone = [&zone] (float cx, float cy, float halfSize) { zone ({ cx - halfSize, cy - halfSize, 2 * halfSize + 1, 2 * halfSize + 1 }); };
 
         // LED des échelons de presets
@@ -581,6 +638,12 @@ private:
     bool drawnHeld = false, drawnRingPreset = false, drawnRingBypass = false;
     juce::String drawnStatus;
 
+    // anti-gel v2
+    juce::Image bgCache;                  // fond à la taille réelle en pixels, refait par le timer seulement
+    int resizeSettle = 2;                 // ticks avant de refaire le cache après un redimensionnement
+    float displayScale = 1.0f;
+    juce::uint32 lastScaleCheck = 0, lastPaintMs = 0, repaintAskedMs = 0;
+
     BigKnob bigKnob;
     ToggleZone rmZone, ubZone, lbZone, psZone, phZone;
     LadderZone ladder;
@@ -590,6 +653,7 @@ private:
 // ------------------------------------------------------------------ editor
 RingEditor::RingEditor (RingProcessor& p) : AudioProcessorEditor (&p), proc (p)
 {
+    setOpaque (true);
     content = std::make_unique<PedalContent> (proc);
     addAndMakeVisible (*content);
     setResizable (true, true);
@@ -608,15 +672,34 @@ RingEditor::~RingEditor() = default;
 // le DAW continue de tourner. Le moteur logiciel est stable partout et largement assez rapide ici.
 void RingEditor::useSoftwareRenderer()
 {
+    auto* peer = getPeer();
+    if (peer == nullptr) return;
    #if JUCE_WINDOWS
-    if (auto* peer = getPeer())
-    {
-        int sw = peer->getAvailableRenderingEngines().indexOf ("Software Renderer");
-        if (sw < 0) sw = 0;
-        if (peer->getCurrentRenderingEngine() != sw)
-            peer->setCurrentRenderingEngine (sw);
-    }
+    int sw = peer->getAvailableRenderingEngines().indexOf ("Software Renderer");
+    if (sw < 0) sw = 0;
+    if (peer->getCurrentRenderingEngine() != sw)
+        peer->setCurrentRenderingEngine (sw);
    #endif
+    if ((void*) peer != lastPeer) { lastPeer = (void*) peer; repaint(); }
+    lastRendererCheck = juce::Time::getMillisecondCounter();
+}
+
+void RingEditor::checkRenderer()
+{
+    if ((void*) getPeer() != lastPeer || juce::Time::getMillisecondCounter() - lastRendererCheck >= 1000)
+        useSoftwareRenderer();
+}
+
+void RingEditor::resetRenderer()
+{
+    lastPeer = nullptr;
+    useSoftwareRenderer();
+    repaint();
+}
+
+void RingEditor::paint (juce::Graphics& g)
+{
+    g.fillAll (juce::Colours::black);    // le contenu recouvre tout ; fenêtre opaque
 }
 
 void RingEditor::parentHierarchyChanged()
@@ -624,11 +707,18 @@ void RingEditor::parentHierarchyChanged()
     useSoftwareRenderer();
 }
 
+void RingEditor::visibilityChanged()
+{
+    useSoftwareRenderer();
+    if (isShowing()) repaint();
+}
+
 void RingEditor::resized()
 {
     const float s = (float) getWidth() / (float) kW;
     content->setTransform (juce::AffineTransform::scale (s));
     content->setBounds (0, 0, kW, kH);
+    content->editorResized();            // jamais de setSize ici (boucle avec l'hôte à 125 / 150 %)
 }
 
 int RingEditor::getScaleIndex() const

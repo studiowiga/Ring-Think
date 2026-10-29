@@ -102,11 +102,12 @@ RingProcessor::RingProcessor()
     for (int i = 0; i < 9; ++i) userPresets[i] = factoryPreset (i);
     loadUserPresetsFromDisk();
     apvts.addParameterListener ("preset", this);
+    startTimerHz (60);   // anti-gel v2: no host call is ever made from the audio thread
 }
 
 RingProcessor::~RingProcessor()
 {
-    cancelPendingUpdate();
+    stopTimer();
     apvts.removeParameterListener ("preset", this);
 }
 
@@ -174,7 +175,6 @@ bool RingProcessor::handleMidi (juce::MidiBuffer& midi)
         if (m.isProgramChange())
         {
             pendingPreset = juce::jlimit (0, 9, m.getProgramChangeNumber());   // PC 0 = live knobs, 1-9 = presets
-            triggerAsyncUpdate();
         }
         else if (m.isController() && m.getControllerNumber() < 120)
         {
@@ -184,14 +184,14 @@ bool RingProcessor::handleMidi (juce::MidiBuffer& midi)
             if (c == ccBypass.load())
             {
                 const bool edge = bypassLatching.load() ? (on != midiBypassHeld.load()) : (on && ! midiBypassHeld.load());
-                if (edge) { pendingToggle = true; triggerAsyncUpdate(); }
+                if (edge) { pendingToggle = true; }
                 midiBypassHeld = on;
             }
         }
         else if (m.isNoteOn())
         {
             if (m.getNoteNumber() == notePreset.load()) { midiPresetDown = true; pressed = true; }
-            if (m.getNoteNumber() == noteBypass.load()) { pendingToggle = true; triggerAsyncUpdate(); }
+            if (m.getNoteNumber() == noteBypass.load()) { pendingToggle = true; }
         }
         else if (m.isNoteOff())
         {
@@ -293,7 +293,7 @@ void RingProcessor::processBlock (juce::AudioBuffer<float>& buf, juce::MidiBuffe
         }
         else
         {
-            if (! tuning.load()) { pendingNext = true; triggerAsyncUpdate(); }
+            if (! tuning.load()) { pendingNext = true; }
             prevDown = false; holdSamples = 0.0; tuning = false;
         }
     }
@@ -626,7 +626,7 @@ void RingProcessor::writeUserPresetsToDisk()
 
 void RingProcessor::parameterChanged (const juce::String& id, float v)
 {
-    if (id == "preset") { pendingPreset = (int) std::lround (v); triggerAsyncUpdate(); }
+    if (id == "preset") { pendingPreset = (int) std::lround (v); }
 }
 
 void RingProcessor::setCurrentProgram (int index)
@@ -636,7 +636,6 @@ void RingProcessor::setCurrentProgram (int index)
     if (juce::Time::getMillisecondCounter() - programLockStart < 2500) return;
     currentProgram = index;
     pendingProgram = index;
-    triggerAsyncUpdate();
 }
 
 void RingProcessor::loadFactorySound (int index)
@@ -644,10 +643,9 @@ void RingProcessor::loadFactorySound (int index)
     if (index < 0 || index > 9) return;
     currentProgram = index;
     pendingProgram = index;
-    triggerAsyncUpdate();
 }
 
-void RingProcessor::handleAsyncUpdate()
+void RingProcessor::timerCallback()
 {
     if (pendingToggle.exchange (false))
         setParamValue ("active", pActive->load() > 0.5f ? 0.0f : 1.0f);

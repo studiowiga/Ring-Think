@@ -34,9 +34,16 @@ Windows: %APPDATA%\WigaRingThink\user_presets.xml
 macOS: ~/Library/WigaRingThink/user_presets.xml
 (shared by every project).
 
+## v2.3.0 - anti-gel v2 (fenêtre qui se fige sous Windows / Reaper)
+- JUCE 8.0.15 (corrections Direct2D, mise à l'échelle Windows, redimensionnement).
+- Fenêtre opaque, moteur de rendu logiciel réappliqué dès que l'hôte recrée la fenêtre.
+- Fond mis à l'échelle par le timer uniquement (aucun calcul lourd pendant le dessin).
+- Chien de garde : si une zone demandée n'est pas redessinée en 1,5 s, le rendu est relancé.
+- Plus aucun appel à l'hôte depuis le thread audio (MIDI, footswitch, presets passent par un timer à 60 Hz).
+
 ## v2.2.2
 - The plugin now opens on the "Ring Mod" sound (knob defaults were giving a ~15 Hz carrier, heard as a tremolo).
 - Pitch shift (Sub Octave, Octave Up, Detune...): the grain window now locks onto the period of the played note, so the shifted note is in tune and no longer beats or wobbles. Chords and silence fall back to the previous fixed window.
 
-## Files (v2.2.2)
+## Files (v2.3.0)
 All the PNG files at the repo root are the pedal artwork (background, knob caps, LEDs, labels...) and are embedded in the plugin by CMakeLists.txt: upload them all.

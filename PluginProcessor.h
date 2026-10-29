@@ -15,7 +15,7 @@ struct PresetData
 
 class RingProcessor : public juce::AudioProcessor,
                       private juce::AudioProcessorValueTreeState::Listener,
-                      private juce::AsyncUpdater
+                      private juce::Timer
 {
 public:
     RingProcessor();
@@ -87,7 +87,7 @@ private:
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
     void parameterChanged (const juce::String&, float) override;
-    void handleAsyncUpdate() override;
+    void timerCallback() override;   // 60 Hz, message thread: does every host call queued by the audio thread
     bool handleMidi (juce::MidiBuffer&);   // returns true if a PRESET/TUNE press arrived in this block
     float detectPitch();
     void applyPresetData (const PresetData&);

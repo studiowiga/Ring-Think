@@ -6,12 +6,12 @@ if(APPLE)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "10.13" CACHE STRING "" FORCE)
 endif()
 
-project(WigaRingThink VERSION 2.2.2)
+project(WigaRingThink VERSION 2.3.0)
 
 include(FetchContent)
 FetchContent_Declare(JUCE
   GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-  GIT_TAG 8.0.4
+  GIT_TAG 8.0.15
   GIT_SHALLOW ON)
 FetchContent_MakeAvailable(JUCE)
 
